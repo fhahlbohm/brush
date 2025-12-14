@@ -1,5 +1,3 @@
-#define UNIFORM_WRITE
-
 #import helpers;
 
 @group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
