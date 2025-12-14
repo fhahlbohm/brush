@@ -5,13 +5,13 @@ const K: u32 = 16u;
 @group(0) @binding(0) var<storage, read> uniforms: helpers::RenderUniforms;
 @group(0) @binding(1) var<storage, read> compact_gid_from_isect: array<u32>;
 @group(0) @binding(2) var<storage, read> tile_offsets: array<u32>;
-@group(0) @binding(3) var<storage, read> projected: array<helpers::ProjectedSplat>;
+@group(0) @binding(3) var<storage, read> projected: array<helpers::TransformedSplat>;
 
 @group(0) @binding(4) var<storage, read_write> out_img: array<u32>;
 
 var<workgroup> range_uniform: vec2u;
 
-var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
+var<workgroup> local_batch: array<helpers::TransformedSplat, helpers::TILE_SIZE>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel

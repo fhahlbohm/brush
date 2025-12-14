@@ -47,15 +47,8 @@ struct RenderUniforms {
     // Degree of sh coefficients used.
     sh_degree: u32,
 
-#ifdef UNIFORM_WRITE
-    // Number of visible gaussians, written by project_forward.
-    // This needs to be non-atomic for other kernels as you can't have
-    // read-only atomic data.
-    num_visible: atomic<u32>,
-#else
     // Number of visible gaussians.
     num_visible: u32,
-#endif
 
     total_splats: u32,
     max_intersects: u32,
@@ -64,7 +57,18 @@ struct RenderUniforms {
     background: vec4f,
 }
 
-struct ProjectedSplat {
+struct SplatBounds {
+    center_x: f32,
+    center_y: f32,
+    extent_x: f32,
+    extent_y: f32,
+}
+
+fn create_splat_bounds(center: vec2f, extent: vec2f) -> SplatBounds {
+    return SplatBounds(center.x, center.y, extent.x, extent.y);
+}
+
+struct TransformedSplat {
     VPMT1_x: f32,
     VPMT1_y: f32,
     VPMT1_z: f32,
@@ -85,27 +89,28 @@ struct ProjectedSplat {
     color_g: f32,
     color_b: f32,
     color_a: f32,
-    center_x: f32,
-    center_y: f32,
-    extent_x: f32,
-    extent_y: f32,
-    xy_x: f32, // TODO: remove
-    xy_y: f32, // TODO: remove
-    conic_x: f32, // TODO: remove
-    conic_y: f32, // TODO: remove
-    conic_z: f32, // TODO: remove
 }
 
-fn create_projected_splat(VPMT1: vec4f, VPMT2: vec4f, VPMT4: vec4f, MT3: vec4f, color: vec4f, center: vec2f, extent: vec2f) -> ProjectedSplat {
-    return ProjectedSplat(
+fn create_transformed_splat(VPMT1: vec4f, VPMT2: vec4f, VPMT4: vec4f, MT3: vec4f, color: vec4f) -> TransformedSplat {
+    return TransformedSplat(
         VPMT1.x, VPMT1.y, VPMT1.z, VPMT1.w,
         VPMT2.x, VPMT2.y, VPMT2.z, VPMT2.w,
         VPMT4.x, VPMT4.y, VPMT4.z, VPMT4.w,
         MT3.x, MT3.y, MT3.z, MT3.w,
-        color.r, color.g, color.b, color.a,
-        center.x, center.y, extent.x, extent.y,
-        0.0, 0.0, 0.0, 0.0, 0.0 // TODO: remove
+        color.r, color.g, color.b, color.a
     );
+}
+
+struct ProjectedSplat {
+    xy_x: f32,
+    xy_y: f32,
+    conic_x: f32,
+    conic_y: f32,
+    conic_z: f32,
+    color_r: f32,
+    color_g: f32,
+    color_b: f32,
+    color_a: f32,
 }
 
 struct PackedVec3 {

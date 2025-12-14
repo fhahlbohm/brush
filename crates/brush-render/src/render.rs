@@ -4,7 +4,7 @@ use crate::{
     dim_check::DimCheck,
     render_aux::RenderAux,
     sh::sh_degree_from_coeffs,
-    shaders::{self, MapGaussiansToIntersect, ProjectSplats, ProjectVisible, Rasterize},
+    shaders::{self, Project, MapGaussiansToIntersect, Rasterize},
 };
 use burn_cubecl::cubecl::cube;
 use burn_cubecl::cubecl::frontend::CompilationArg;
@@ -15,7 +15,7 @@ use burn_cubecl::cubecl::{self, terminate};
 use brush_kernel::create_dispatch_buffer;
 use brush_kernel::create_tensor;
 use brush_kernel::create_uniform_buffer;
-use brush_kernel::{CubeCount, calc_cube_count};
+use brush_kernel::CubeCount;
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::tensor::{DType, IntDType};
@@ -119,8 +119,7 @@ pub(crate) fn render_forward(
         total_splats: total_splats as u32,
         max_intersects,
         background: [background.x, background.y, background.z, 1.0],
-        // Nb: Bit of a hack as these aren't _really_ uniforms but are written to by the shaders.
-        num_visible: 0,
+        num_visible: 0, // TODO: remove
     };
 
     // Nb: This contains both static metadata and some dynamic data so can't pass this as metadata to execute. In the future
@@ -129,61 +128,34 @@ pub(crate) fn render_forward(
 
     let client = &means.client.clone();
 
-    let (global_from_compact_gid, num_visible) = {
-        let global_from_presort_gid =
-            MainBackendBase::int_zeros([total_splats].into(), device, IntDType::U32);
-        let depths = create_tensor([total_splats], device, DType::F32);
-
-        tracing::trace_span!("ProjectSplats").in_scope(||
-            // SAFETY: Kernel checked to have no OOB, bounded loops.
-            unsafe {
-            client.launch_unchecked(
-                ProjectSplats::task(),
-                calc_cube_count([total_splats as u32], ProjectSplats::WORKGROUP_SIZE),
-                Bindings::new().with_buffers(
-                vec![
-                    uniforms_buffer.handle.clone().binding(),
-                    means.handle.clone().binding(),
-                    quats.handle.clone().binding(),
-                    log_scales.handle.clone().binding(),
-                    raw_opacities.handle.clone().binding(),
-                    global_from_presort_gid.handle.clone().binding(),
-                    depths.handle.clone().binding(),
-                ]),
-            ).expect("Failed to render splats");
-        });
-
-        // Get just the number of visible splats from the uniforms buffer.
-        let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
-        let num_visible = MainBackendBase::int_slice(
-            uniforms_buffer.clone(),
-            &[(num_vis_field_offset..num_vis_field_offset + 1).into()],
-        );
-
-        let (_, global_from_compact_gid) = tracing::trace_span!("DepthSort").in_scope(|| {
-            // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
-            // which we know to be the case given how we cull splats.
-            radix_argsort(depths, global_from_presort_gid, &num_visible, 32)
-        });
-
-        (global_from_compact_gid, num_visible)
-    };
+    let global_from_compact_gid =
+        MainBackendBase::int_zeros([total_splats].into(), device, IntDType::U32); // TODO: remove
 
     // Create a buffer of 'projected' splats, that is,
     // project XY, projected conic, and converted color.
-    let proj_size = size_of::<shaders::helpers::ProjectedSplat>() / size_of::<f32>();
+    let proj_size = size_of::<shaders::helpers::TransformedSplat>() / size_of::<f32>();
     let projected_splats = create_tensor([total_splats, proj_size], device, DType::F32);
 
-    tracing::trace_span!("ProjectVisible").in_scope(|| {
-        // Create a buffer to determine how many threads to dispatch for all visible splats.
-        let num_vis_wg =
-            create_dispatch_buffer(num_visible.clone(), ProjectVisible::WORKGROUP_SIZE);
+    let splat_bounds_size = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
+    let splat_bounds = create_tensor([total_splats, splat_bounds_size], device, DType::F32);
+
+    // Get just the number of splats from the uniforms buffer.
+    let total_splats_field_offset = offset_of!(shaders::helpers::RenderUniforms, total_splats) / 4;
+    let num_splats = MainBackendBase::int_slice(
+        uniforms_buffer.clone(),
+        &[(total_splats_field_offset..total_splats_field_offset + 1).into()],
+    );
+
+    tracing::trace_span!("Project").in_scope(|| {
+        // Create a buffer to determine how many threads to dispatch for all splats.
+        let num_splats_wg =
+            create_dispatch_buffer(num_splats.clone(), Project::WORKGROUP_SIZE);
         // SAFETY: Kernel checked to have no OOB, bounded loops.
         unsafe {
             client
                 .launch_unchecked(
-                    ProjectVisible::task(),
-                    CubeCount::Dynamic(num_vis_wg.handle.binding()),
+                    Project::task(),
+                    CubeCount::Dynamic(num_splats_wg.handle.binding()),
                     Bindings::new().with_buffers(vec![
                         uniforms_buffer.clone().handle.binding(),
                         means.handle.binding(),
@@ -191,8 +163,8 @@ pub(crate) fn render_forward(
                         quats.handle.binding(),
                         sh_coeffs.handle.binding(),
                         raw_opacities.handle.binding(),
-                        global_from_compact_gid.handle.clone().binding(),
                         projected_splats.handle.clone().binding(),
+                        splat_bounds.handle.clone().binding(),
                     ]),
                 )
                 .expect("Failed to render splats");
@@ -206,8 +178,8 @@ pub(crate) fn render_forward(
         let splat_intersect_counts =
             MainBackendBase::int_zeros([total_splats + 1].into(), device, IntDType::U32);
 
-        let num_vis_map_wg =
-            create_dispatch_buffer(num_visible, MapGaussiansToIntersect::WORKGROUP_SIZE);
+        let num_splats_map_wg =
+            create_dispatch_buffer(num_splats, MapGaussiansToIntersect::WORKGROUP_SIZE);
 
         // First do a prepass to compute the tile counts, then fill in intersection counts.
         tracing::trace_span!("MapGaussiansToIntersectPrepass").in_scope(|| {
@@ -216,10 +188,10 @@ pub(crate) fn render_forward(
                 client
                     .launch_unchecked(
                         MapGaussiansToIntersect::task(true),
-                        CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
+                        CubeCount::Dynamic(num_splats_map_wg.handle.clone().binding()),
                         Bindings::new().with_buffers(vec![
                             uniforms_buffer.handle.clone().binding(),
-                            projected_splats.handle.clone().binding(),
+                            splat_bounds.handle.clone().binding(),
                             splat_intersect_counts.handle.clone().binding(),
                         ]),
                     )
@@ -227,7 +199,6 @@ pub(crate) fn render_forward(
             }
         });
 
-        // TODO: Only need to do this up to num_visible gaussians really.
         let cum_tiles_hit = tracing::trace_span!("PrefixSumGaussHits")
             .in_scope(|| prefix_sum(splat_intersect_counts));
 
@@ -243,10 +214,10 @@ pub(crate) fn render_forward(
                 client
                     .launch_unchecked(
                         MapGaussiansToIntersect::task(false),
-                        CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
+                        CubeCount::Dynamic(num_splats_map_wg.handle.clone().binding()),
                         Bindings::new().with_buffers(vec![
                             uniforms_buffer.handle.clone().binding(),
-                            projected_splats.handle.clone().binding(),
+                            splat_bounds.handle.clone().binding(),
                             cum_tiles_hit.handle.binding(),
                             tile_id_from_isect.handle.clone().binding(),
                             compact_gid_from_isect.handle.clone().binding(),

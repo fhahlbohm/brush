@@ -118,7 +118,7 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
 
         let num_points = means.shape[0];
 
-        let proj_size = size_of::<shaders::helpers::ProjectedSplat>() / 4;
+        let proj_size = size_of::<shaders::helpers::TransformedSplat>() / 4;
         let uniforms_size = size_of::<shaders::helpers::RenderUniforms>() / 4;
         let tile_bounds = calc_tile_bounds(img_size);
         let max_intersects = max_intersections(img_size, num_points as u32);

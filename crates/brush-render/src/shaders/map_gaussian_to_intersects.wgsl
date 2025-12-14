@@ -1,7 +1,7 @@
 #import helpers;
 
 @group(0) @binding(0) var<storage, read> uniforms: helpers::RenderUniforms;
-@group(0) @binding(1) var<storage, read> projected: array<helpers::ProjectedSplat>;
+@group(0) @binding(1) var<storage, read> splat_bounds: array<helpers::SplatBounds>;
 
 #ifdef PREPASS
     @group(0) @binding(2) var<storage, read_write> splat_intersect_counts: array<u32>;
@@ -14,22 +14,25 @@
 
 @compute
 @workgroup_size(256, 1, 1)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let compact_gid = gid.x;
+fn main(@builtin(global_invocation_id) global_id: vec3u) {
+    let global_gid = global_id.x;
 
 #ifndef PREPASS
-    if gid.x == 0 {
-        num_intersections[0] = splat_cum_hit_counts[uniforms.num_visible];
+    if global_id.x == 0 {
+        num_intersections[0] = splat_cum_hit_counts[uniforms.total_splats];
     }
 #endif
 
-    if compact_gid >= uniforms.num_visible {
+    if global_gid >= uniforms.total_splats {
         return;
     }
 
-    let projected = projected[compact_gid];
-    let center = vec2f(projected.center_x, projected.center_y);
-    let extent = vec2f(projected.extent_x, projected.extent_y);
+    let bounds = splat_bounds[global_gid];
+    let center = vec2f(bounds.center_x, bounds.center_y);
+    let extent = vec2f(bounds.extent_x, bounds.extent_y);
+    if extent.x <= 0.0 || extent.y <= 0.0 {
+        return;
+    }
 
     let tile_bbox = helpers::get_tile_bbox(center, extent, uniforms.tile_bounds);
     let tile_bbox_min = tile_bbox.xy;
@@ -38,7 +41,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var num_tiles_hit = 0u;
 
     #ifndef PREPASS
-        let base_isect_id = splat_cum_hit_counts[compact_gid];
+        let base_isect_id = splat_cum_hit_counts[global_gid];
     #endif
 
     // Nb: It's really really important here the two dispatches
@@ -56,7 +59,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             // These kernels should be launched with bounds checking, so that these
             // writes are ignored. This will skip these intersections.
             tile_id_from_isect[isect_id] = tile_id;
-            compact_gid_from_isect[isect_id] = compact_gid;
+            compact_gid_from_isect[isect_id] = global_gid;
         #endif
 
             num_tiles_hit += 1u;
@@ -64,6 +67,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     #ifdef PREPASS
-        splat_intersect_counts[compact_gid + 1u] = num_tiles_hit;
+        splat_intersect_counts[global_gid + 1u] = num_tiles_hit;
     #endif
 }
