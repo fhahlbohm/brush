@@ -15,7 +15,6 @@ pub struct MapGaussiansToIntersect {
 
 #[wgsl_kernel(source = "src/shaders/rasterize.wgsl")]
 pub struct Rasterize {
-    pub bwd_info: bool,
     pub webgpu: bool,
 }
 
@@ -27,7 +26,7 @@ pub mod helpers {
     pub use super::project_visible::RenderUniforms;
 
     // Constants are now associated with the kernel structs
-    pub const COV_BLUR: f32 = super::ProjectVisible::COV_BLUR;
+    // pub const COV_BLUR: f32 = super::ProjectVisible::COV_BLUR;
     pub const TILE_SIZE: u32 = super::Rasterize::TILE_SIZE;
     pub const TILE_WIDTH: u32 = super::Rasterize::TILE_WIDTH;
 }

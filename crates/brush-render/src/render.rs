@@ -19,10 +19,7 @@ use brush_kernel::{CubeCount, calc_cube_count};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::tensor::{DType, IntDType};
-use burn::tensor::{
-    FloatDType,
-    ops::{FloatTensorOps, IntTensorOps},
-};
+use burn::tensor::ops::IntTensorOps;
 
 use burn_cubecl::kernel::into_contiguous;
 use burn_wgpu::WgpuRuntime;
@@ -65,6 +62,7 @@ pub(crate) fn render_forward(
     background: Vec3,
     bwd_info: bool,
 ) -> (CubeTensor<WgpuRuntime>, RenderAux<MainBackendBase>) {
+    assert!(!bwd_info, "this implementation is inference-only");
     assert!(
         img_size[0] > 0 && img_size[1] > 0,
         "Can't render images with 0 size."
@@ -328,20 +326,13 @@ pub(crate) fn render_forward(
 
     let _span = tracing::trace_span!("Rasterize").entered();
 
-    let out_dim = if bwd_info {
-        4
-    } else {
-        // Channels are packed into 4 bytes, aka one float.
-        1
-    };
-
     let out_img = create_tensor(
-        [img_size.y as usize, img_size.x as usize, out_dim],
+        [img_size.y as usize, img_size.x as usize, 1], // Channels are packed into 4 bytes, aka one float.
         device,
         DType::F32,
     );
 
-    let mut bindings = Bindings::new().with_buffers(vec![
+    let bindings = Bindings::new().with_buffers(vec![
         uniforms_buffer.handle.clone().binding(),
         compact_gid_from_isect.handle.clone().binding(),
         tile_offsets.handle.clone().binding(),
@@ -349,23 +340,10 @@ pub(crate) fn render_forward(
         out_img.handle.clone().binding(),
     ]);
 
-    let visible = if bwd_info {
-        let visible = MainBackendBase::float_zeros([total_splats].into(), device, FloatDType::F32);
+    let visible = create_tensor([1], device, DType::F32);
 
-        // Add the buffer to the bindings
-        bindings = bindings.with_buffers(vec![
-            global_from_compact_gid.handle.clone().binding(),
-            visible.handle.clone().binding(),
-        ]);
-
-        visible
-    } else {
-        create_tensor([1], device, DType::F32)
-    };
-
-    // Compile the kernel, including/excluding info for backwards pass.
-    // see the BWD_INFO define in the rasterize shader.
-    let raster_task = Rasterize::task(bwd_info, cfg!(target_family = "wasm"));
+    // Compile the kernel.
+    let raster_task = Rasterize::task(cfg!(target_family = "wasm"));
 
     // SAFETY: Kernel checked to have no OOB, bounded loops.
     unsafe {

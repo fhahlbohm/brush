@@ -171,25 +171,46 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let global_gid = global_from_compact_gid[compact_gid];
 
-    // Project world space to camera space.
     let mean = helpers::as_vec(means[global_gid]);
     let scale = exp(helpers::as_vec(log_scales[global_gid]));
-
-    // Safe to normalize, splats with length(quat) == 0 are invisible.
     let quat = normalize(quats[global_gid]);
-    let opac = helpers::sigmoid(raw_opacities[global_gid]);
+    let rot = helpers::quat_to_mat(quat);
+    let u = rot[0] * scale.x;
+    let v = rot[1] * scale.y;
+    let w = rot[2] * scale.z;
+    let T = mat4x4f(
+        vec4f(u, 0.0f),
+        vec4f(v, 0.0f),
+        vec4f(w, 0.0f),
+        vec4f(mean, 1.0f)
+    );
 
+    // compute VPMT transform
+    const near = 0.2f;
+    const far = 1000.0f;
+    let depth_range = far - near;
+    let VP = mat4x4f(
+        vec4f(uniforms.focal.x, 0.0f, 0.0f, 0.0f), // 1st col
+        vec4f(0.0f, uniforms.focal.y, 0.0f, 0.0f), // 2nd col
+        vec4f(uniforms.pixel_center.x, uniforms.pixel_center.y, (far + near) / depth_range, 1.0f), // 3rd col
+        vec4f(0.0f, 0.0f, -2.0f * near * far / depth_range, 0.0f) // 4th col
+    );
     let viewmat = uniforms.viewmat;
-    let R = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    let mean_c = R * mean + viewmat[3].xyz;
+    let VPMT = VP * viewmat * T; // TODO: precompute VP * viewmat on the CPU
+    let VPMT1 = vec4f(VPMT[0].x, VPMT[1].x, VPMT[2].x, VPMT[3].x);
+    let VPMT2 = vec4f(VPMT[0].y, VPMT[1].y, VPMT[2].y, VPMT[3].y);
+    let VPMT4 = vec4f(VPMT[0].w, VPMT[1].w, VPMT[2].w, VPMT[3].w);
+    let MT = viewmat * T; // TODO: dont do the full matmul here
+    let MT3 = vec4f(MT[0].z, MT[1].z, MT[2].z, MT[3].z);
 
-    let covar = helpers::calc_cov3d(scale, quat);
-    let cov2d = helpers::calc_cov2d(covar, mean_c, uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat);
-    let conic = helpers::inverse(cov2d);
-
-    // compute the projected mean
-    let rz = 1.0 / mean_c.z;
-    let mean2d = uniforms.focal * mean_c.xy * rz + uniforms.pixel_center;
+    // compute screen-space bounding box
+    let opac = helpers::sigmoid(raw_opacities[global_gid]);
+    let rho_cutoff = 2.0f * log(opac * 255.0f); // corresponds to blending threshold of (1 / 255)
+    let t = vec4f(rho_cutoff, rho_cutoff, rho_cutoff, -1.0f);
+    let d = dot(t, VPMT4 * VPMT4);
+    let f = (1.0f / d) * t;
+    let center = vec2f(dot(f, VPMT1 * VPMT4), dot(f, VPMT2 * VPMT4));
+    let extent = sqrt(max(center * center - vec2f(dot(f, VPMT1 * VPMT1), dot(f, VPMT2 * VPMT2)), vec2f(1e-12f)));
 
     let sh_degree = uniforms.sh_degree;
     let num_coeffs = num_sh_coeffs(sh_degree);
@@ -236,11 +257,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     // Write projected splat information.
     let viewdir = normalize(mean - uniforms.camera_position.xyz);
-    var color = sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5);
+    let color = max(sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
 
     projected[compact_gid] = helpers::create_projected_splat(
-        mean2d,
-        vec3f(conic[0][0], conic[0][1], conic[1][1]),
-        vec4f(color, opac)
+        VPMT1,
+        VPMT2,
+        VPMT4,
+        MT3,
+        vec4f(color, opac),
+        center,
+        extent
     );
 }

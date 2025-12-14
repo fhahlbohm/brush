@@ -65,19 +65,47 @@ struct RenderUniforms {
 }
 
 struct ProjectedSplat {
-    xy_x: f32,
-    xy_y: f32,
-    conic_x: f32,
-    conic_y: f32,
-    conic_z: f32,
+    VPMT1_x: f32,
+    VPMT1_y: f32,
+    VPMT1_z: f32,
+    VPMT1_w: f32,
+    VPMT2_x: f32,
+    VPMT2_y: f32,
+    VPMT2_z: f32,
+    VPMT2_w: f32,
+    VPMT4_x: f32,
+    VPMT4_y: f32,
+    VPMT4_z: f32,
+    VPMT4_w: f32,
+    MT3_x: f32,
+    MT3_y: f32,
+    MT3_z: f32,
+    MT3_w: f32,
     color_r: f32,
     color_g: f32,
     color_b: f32,
     color_a: f32,
+    center_x: f32,
+    center_y: f32,
+    extent_x: f32,
+    extent_y: f32,
+    xy_x: f32, // TODO: remove
+    xy_y: f32, // TODO: remove
+    conic_x: f32, // TODO: remove
+    conic_y: f32, // TODO: remove
+    conic_z: f32, // TODO: remove
 }
 
-fn create_projected_splat(xy: vec2f, conic: vec3f, color: vec4f) -> ProjectedSplat {
-    return ProjectedSplat(xy.x, xy.y, conic.x, conic.y, conic.z, color.r, color.g, color.b, color.a);
+fn create_projected_splat(VPMT1: vec4f, VPMT2: vec4f, VPMT4: vec4f, MT3: vec4f, color: vec4f, center: vec2f, extent: vec2f) -> ProjectedSplat {
+    return ProjectedSplat(
+        VPMT1.x, VPMT1.y, VPMT1.z, VPMT1.w,
+        VPMT2.x, VPMT2.y, VPMT2.z, VPMT2.w,
+        VPMT4.x, VPMT4.y, VPMT4.z, VPMT4.w,
+        MT3.x, MT3.y, MT3.z, MT3.w,
+        color.r, color.g, color.b, color.a,
+        center.x, center.y, extent.x, extent.y,
+        0.0, 0.0, 0.0, 0.0, 0.0 // TODO: remove
+    );
 }
 
 struct PackedVec3 {

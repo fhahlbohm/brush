@@ -22,60 +22,76 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
 
-    // Project world space to camera space.
+    const near = 0.2f;
+    const far = 1000.0f;
+
+    // early near/far culling based on view-space mean.
     let mean = helpers::as_vec(means[global_gid]);
-
-    let img_size = uniforms.img_size;
     let viewmat = uniforms.viewmat;
-    let R = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    let mean_c = R * mean + viewmat[3].xyz;
-
-    // Check if this splat is 'valid' (aka visible). Phrase as positive to bail on NaN.
-    if mean_c.z < 0.01 || mean_c.z > 1e10 {
+    let depth = viewmat[0].z * mean.x + viewmat[1].z * mean.y + viewmat[2].z * mean.z + viewmat[3].z;
+    if depth < near || depth > far {
         return;
     }
-
-    let scale = exp(helpers::as_vec(log_scales[global_gid]));
-    var quat = quats[global_gid];
-
-    // Skip any invalid rotations. This will mean overtime
-    // these gaussians just die off while optimizing. For the viewer, the importer
-    // atm always normalizes the quaternions.
-    // Phrase as positive to bail on NaN.
-    let quat_norm_sqr = dot(quat, quat);
-    if quat_norm_sqr < 1e-6 {
-        return;
-    }
-
-    quat *= inverseSqrt(quat_norm_sqr);
-
-    let cov3d = helpers::calc_cov3d(scale, quat);
-    let cov2d = helpers::calc_cov2d(cov3d, mean_c, uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat);
-
-    if abs(determinant(cov2d)) < 1e-24 {
-        return;
-    }
-
-    // compute the projected mean
-    let mean2d = uniforms.focal * mean_c.xy * (1.0 / mean_c.z) + uniforms.pixel_center;
 
     let opac = helpers::sigmoid(raw_opacities[global_gid]);
-
-    if opac < 1.0 / 255.0 {
+    if opac < 1.0f / 255.0f {
         return;
     }
 
-    let extent = helpers::compute_bbox_extent(cov2d, log(255.0f * opac));
-    if extent.x < 0.0 || extent.y < 0.0 {
+    var quat = quats[global_gid];
+    let quat_norm_sqr = dot(quat, quat);
+    if quat_norm_sqr < 1e-6f {
+        return;
+    }
+    quat *= inverseSqrt(quat_norm_sqr);
+    let rot = helpers::quat_to_mat(quat);
+
+    let scale = exp(helpers::as_vec(log_scales[global_gid]));
+
+    let u = rot[0] * scale.x;
+    let v = rot[1] * scale.y;
+    let w = rot[2] * scale.z;
+    let T = mat4x4f(
+        vec4f(u, 0.0f),
+        vec4f(v, 0.0f),
+        vec4f(w, 0.0f),
+        vec4f(mean, 1.0f)
+    );
+
+    // compute VPMT transform
+    let depth_range = far - near;
+    let VP = mat4x4f(
+        vec4f(uniforms.focal.x, 0.0f, 0.0f, 0.0f), // 1st col
+        vec4f(0.0f, uniforms.focal.y, 0.0f, 0.0f), // 2nd col
+        vec4f(uniforms.pixel_center.x, uniforms.pixel_center.y, (far + near) / depth_range, 1.0f), // 3rd col
+        vec4f(0.0f, 0.0f, -2.0f * near * far / depth_range, 0.0f) // 4th col
+    );
+    let VPMT = VP * viewmat * T;
+    let VPMT1 = vec4f(VPMT[0].x, VPMT[1].x, VPMT[2].x, VPMT[3].x);
+    let VPMT2 = vec4f(VPMT[0].y, VPMT[1].y, VPMT[2].y, VPMT[3].y);
+    let VPMT3 = vec4f(VPMT[0].z, VPMT[1].z, VPMT[2].z, VPMT[3].z);
+    let VPMT4 = vec4f(VPMT[0].w, VPMT[1].w, VPMT[2].w, VPMT[3].w);
+
+    // compute screen-space bounding box and cull if outside
+    let rho_cutoff = 2.0f * log(opac * 255.0f); // corresponds to blending threshold of (1 / 255)
+    let t = vec4f(rho_cutoff, rho_cutoff, rho_cutoff, -1.0f);
+    let d = dot(t, VPMT4 * VPMT4);
+    if (d == 0.0f) {
+        return;
+    }
+    let f = (1.0f / d) * t;
+    let center = vec3f(dot(f, VPMT1 * VPMT4), dot(f, VPMT2 * VPMT4), dot(f, VPMT3 * VPMT4));
+    let extent = sqrt(max(center * center - vec3f(dot(f, VPMT1 * VPMT1), dot(f, VPMT2 * VPMT2), dot(f, VPMT3 * VPMT3)), vec3f(1e-12f)));
+    let min_bounds = center - extent;
+    let max_bounds = center + extent;
+    if (max_bounds.x <= 0.0f || min_bounds.x >= f32(uniforms.img_size.x) ||
+        max_bounds.y <= 0.0f || min_bounds.y >= f32(uniforms.img_size.y) ||
+        min_bounds.z <= -1.0f || max_bounds.z >= 1.0f) {
         return;
     }
 
-    if mean2d.x + extent.x <= 0 || mean2d.x - extent.x >= f32(uniforms.img_size.x) ||
-       mean2d.y + extent.y <= 0 || mean2d.y - extent.y >= f32(uniforms.img_size.y) {
-        return;
-    }
     // Now write all the data to the buffers.
     let write_id = atomicAdd(&uniforms.num_visible, 1u);
     global_from_compact_gid[write_id] = global_gid;
-    depths[write_id] = mean_c.z;
+    depths[write_id] = 1.0f;
 }

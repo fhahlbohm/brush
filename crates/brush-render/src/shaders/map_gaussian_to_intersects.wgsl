@@ -28,14 +28,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     let projected = projected[compact_gid];
-    let mean2d = vec2f(projected.xy_x, projected.xy_y);
-    let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
-    let opac = projected.color_a;
+    let center = vec2f(projected.center_x, projected.center_y);
+    let extent = vec2f(projected.extent_x, projected.extent_y);
 
-    let power_threshold = log(opac * 255.0);
-    let cov2d = helpers::inverse(mat2x2f(conic.x, conic.y, conic.y, conic.z));
-    let extent = helpers::compute_bbox_extent(cov2d, power_threshold);
-    let tile_bbox = helpers::get_tile_bbox(mean2d, extent, uniforms.tile_bounds);
+    let tile_bbox = helpers::get_tile_bbox(center, extent, uniforms.tile_bounds);
     let tile_bbox_min = tile_bbox.xy;
     let tile_bbox_max = tile_bbox.zw;
 
@@ -50,15 +46,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // we might not be writing some intersection data.
     // This is a bit scary given potential optimizations that might happen depending
     // on which version is being ran.
-    let tile_bbox_width = tile_bbox_max.x - tile_bbox_min.x;
-    let num_tiles_bbox = (tile_bbox_max.y - tile_bbox_min.y) * tile_bbox_width;
-
-    for (var tile_idx = 0u; tile_idx < num_tiles_bbox; tile_idx++) {
-        let tx = (tile_idx % tile_bbox_width) + tile_bbox_min.x;
-        let ty = (tile_idx / tile_bbox_width) + tile_bbox_min.y;
-
-        let rect = helpers::tile_rect(vec2u(tx, ty));
-        if helpers::will_primitive_contribute(rect, mean2d, conic, power_threshold) {
+    for (var tx = tile_bbox_min.x; tx < tile_bbox_max.x; tx++) {
+        for (var ty = tile_bbox_min.y; ty < tile_bbox_max.y; ty++) {
             let tile_id = tx + ty * uniforms.tile_bounds.x;
 
         #ifndef PREPASS
