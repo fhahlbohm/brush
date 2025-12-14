@@ -137,8 +137,6 @@ fn main(
         // by definition.
         let final_color = vec4f(pix_out + T * uniforms.background.rgb, 1.0f - T);
 
-        let colors_u = vec4u(clamp(final_color * 255.0f, vec4f(0.0), vec4f(255.0)));
-        let packed: u32 = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
-        out_img[pix_id] = packed;
+        out_img[pix_id] = helpers::pack_rgba8(final_color);
     }
 }
