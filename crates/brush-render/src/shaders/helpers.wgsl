@@ -312,3 +312,19 @@ fn as_vec(packed: PackedVec3) -> vec3f {
 fn as_packed(vec: vec3f) -> PackedVec3 {
     return PackedVec3(vec.x, vec.y, vec.z);
 }
+
+fn unpack_rgba8(p: u32) -> vec4f {
+    return vec4f(
+        vec4u(
+            (p >> 0u)  & 0xffu,
+            (p >> 8u)  & 0xffu,
+            (p >> 16u) & 0xffu,
+            (p >> 24u) & 0xffu
+        )
+    ) * (1.0 / 255.0);
+}
+
+fn pack_rgba8(v: vec4f) -> u32 {
+    let u = vec4u(clamp(v, vec4f(0.0), vec4f(1.0)) * 255.0);
+    return u.x | (u.y << 8u) | (u.z << 16u) | (u.w << 24u);
+}

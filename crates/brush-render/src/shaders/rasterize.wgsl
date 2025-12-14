@@ -94,8 +94,7 @@ fn main(
 
             if (depth < core_depths[K - 1u] && alpha >= 0.05f) {
                 // pack
-                let rgba_premult_u = vec4u(rgba_premult * 255.0f);
-                var rgba_premult_packed: u32 = rgba_premult_u.x | (rgba_premult_u.y << 8u) | (rgba_premult_u.z << 16u) | (rgba_premult_u.w << 24u);
+                var rgba_premult_packed: u32 = helpers::pack_rgba8(rgba_premult);
                 // insert
                 for (var core_idx = 0u; core_idx < K; core_idx++) {
                     if (depth < core_depths[core_idx]) {
@@ -108,12 +107,7 @@ fn main(
                     }
                 }
                 // unpack
-                rgba_premult = vec4f(
-                    f32((rgba_premult_packed >> 0u) & 0xffu),
-                    f32((rgba_premult_packed >> 8u) & 0xffu),
-                    f32((rgba_premult_packed >> 16u) & 0xffu),
-                    f32((rgba_premult_packed >> 24u) & 0xffu),
-                ) * (1.0f / 255.0f);
+                rgba_premult = helpers::unpack_rgba8(rgba_premult_packed);
             }
             rgba_premult_tail += rgba_premult;
             T_tail *= (1.0f - rgba_premult.a);
@@ -125,13 +119,7 @@ fn main(
         var T = 1.0f;
         for (var core_idx = 0u; core_idx < K; core_idx++) {
             // unpack
-            let rgba_premult_packed = core_infos[core_idx];
-            let rgba_premult = vec4f(
-                f32((rgba_premult_packed >> 0u) & 0xffu),
-                f32((rgba_premult_packed >> 8u) & 0xffu),
-                f32((rgba_premult_packed >> 16u) & 0xffu),
-                f32((rgba_premult_packed >> 24u) & 0xffu),
-            ) * (1.0f / 255.0f);
+            let rgba_premult = helpers::unpack_rgba8(core_infos[core_idx]);
             // blend
             pix_out += T * rgba_premult.rgb;
             T *= (1.0f - rgba_premult.a);
