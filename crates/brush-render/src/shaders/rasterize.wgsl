@@ -41,13 +41,13 @@ fn main(
     let range = workgroupUniformLoad(&range_uniform);
 
     var core_depths: array<f32, K>;
-    var core_infos: array<vec4f, K>;
+    var core_infos: array<u32, K>;
     for (var i = 0u; i < K; i++) {
-        core_depths[i] = 123456789.0f;
-        core_infos[i] = vec4f(0.0);
+        core_depths[i] = 987654321.0f;
+        core_infos[i] = 0;
     }
     var T_tail = 1.0f;
-    var rgba_premultiplied_tail = vec4f(0.0);
+    var rgba_premult_tail = vec4f(0.0);
 
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
@@ -90,22 +90,33 @@ fn main(
             }
             let eval_point_diag = cross(d, m) * denominator_rcp;
             var depth = dot(MT3.xyz, eval_point_diag) + MT3.w;
-            var rgba_premultiplied = vec4f(color.rgb * alpha, alpha);
+            var rgba_premult = vec4f(color.rgb * alpha, alpha);
 
             if (depth < core_depths[K - 1u] && alpha >= 0.05f) {
+                // pack
+                let rgba_premult_u = vec4u(rgba_premult * 255.0f);
+                var rgba_premult_packed: u32 = rgba_premult_u.x | (rgba_premult_u.y << 8u) | (rgba_premult_u.z << 16u) | (rgba_premult_u.w << 24u);
+                // insert
                 for (var core_idx = 0u; core_idx < K; core_idx++) {
                     if (depth < core_depths[core_idx]) {
                         let temp_depth = depth;
                         depth = core_depths[core_idx];
                         core_depths[core_idx] = temp_depth;
-                        let temp_rgba_premultiplied = rgba_premultiplied;
-                        rgba_premultiplied = core_infos[core_idx];
-                        core_infos[core_idx] = temp_rgba_premultiplied;
+                        let temp_rgba_premult_packed = rgba_premult_packed;
+                        rgba_premult_packed = core_infos[core_idx];
+                        core_infos[core_idx] = temp_rgba_premult_packed;
                     }
                 }
+                // unpack
+                rgba_premult = vec4f(
+                    f32((rgba_premult_packed >> 0u) & 0xffu),
+                    f32((rgba_premult_packed >> 8u) & 0xffu),
+                    f32((rgba_premult_packed >> 16u) & 0xffu),
+                    f32((rgba_premult_packed >> 24u) & 0xffu),
+                ) * (1.0f / 255.0f);
             }
-            rgba_premultiplied_tail += rgba_premultiplied;
-            T_tail *= (1.0f - rgba_premultiplied.a);
+            rgba_premult_tail += rgba_premult;
+            T_tail *= (1.0f - rgba_premult.a);
         }
     }
 
@@ -113,17 +124,25 @@ fn main(
         var pix_out = vec3f(0.0);
         var T = 1.0f;
         for (var core_idx = 0u; core_idx < K; core_idx++) {
-            let rgba_premultiplied = core_infos[core_idx];
-            pix_out += T * rgba_premultiplied.rgb;
-            T *= (1.0f - rgba_premultiplied.a);
+            // unpack
+            let rgba_premult_packed = core_infos[core_idx];
+            let rgba_premult = vec4f(
+                f32((rgba_premult_packed >> 0u) & 0xffu),
+                f32((rgba_premult_packed >> 8u) & 0xffu),
+                f32((rgba_premult_packed >> 16u) & 0xffu),
+                f32((rgba_premult_packed >> 24u) & 0xffu),
+            ) * (1.0f / 255.0f);
+            // blend
+            pix_out += T * rgba_premult.rgb;
+            T *= (1.0f - rgba_premult.a);
             if (T < 1e-4f) {
                 T = 0.0f;
                 break;
             }
         }
-        if (T > 0.0f && rgba_premultiplied_tail.a >= 1.0f / 255.0f) {
+        if (T > 0.0f && rgba_premult_tail.a >= 1.0f / 255.0f) {
             let weight_tail = T * (1.0f - T_tail);
-            pix_out += weight_tail * (1.0f / rgba_premultiplied_tail.a) * rgba_premultiplied_tail.rgb;
+            pix_out += weight_tail * (1.0f / rgba_premult_tail.a) * rgba_premult_tail.rgb;
             T *= T_tail;
         }
         // Compose with background. Nb that color is already pre-multiplied
