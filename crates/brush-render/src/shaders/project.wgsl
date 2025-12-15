@@ -1,3 +1,5 @@
+#define UNIFORM_WRITE
+
 #import helpers;
 
 @group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
@@ -158,14 +160,12 @@ fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
 
 @compute
 @workgroup_size(256, 1, 1)
-fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    var global_gid = global_id.x;
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+    let global_gid = gid.x;
 
     if global_gid >= uniforms.total_splats {
         return;
     }
-
-    splat_bounds[global_gid] = helpers::create_splat_bounds(vec2f(0.0f, 0.0f), vec2f(0.0f, 0.0f));
 
     const near = 0.2f;
     const far = 1000.0f;
@@ -283,13 +283,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let viewdir = normalize(mean - uniforms.camera_position.xyz);
     let color = max(sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
 
-    transformed[global_gid] = helpers::create_transformed_splat(
+    let write_id = atomicAdd(&uniforms.num_visible, 1u);
+    transformed[write_id] = helpers::create_transformed_splat(
         VPMT1,
         VPMT2,
         VPMT4,
         MT3,
         vec4f(color, opac)
     );
-    splat_bounds[global_gid] = helpers::create_splat_bounds(center.xy, extent.xy);
+    splat_bounds[write_id] = helpers::create_splat_bounds(center.xy, extent.xy);
 
 }

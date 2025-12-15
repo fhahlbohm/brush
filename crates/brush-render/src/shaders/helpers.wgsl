@@ -47,8 +47,15 @@ struct RenderUniforms {
     // Degree of sh coefficients used.
     sh_degree: u32,
 
-    // Number of visible gaussians.
+#ifdef UNIFORM_WRITE
+    // Number of visible gaussians and fragments.
+    // This needs to be non-atomic for other kernels as you can't have
+    // read-only atomic data.
+    num_visible: atomic<u32>,
+#else
+    // Number of visible gaussians and fragments.
     num_visible: u32,
+#endif
 
     total_splats: u32,
     max_intersects: u32,

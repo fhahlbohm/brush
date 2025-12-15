@@ -14,25 +14,22 @@
 
 @compute
 @workgroup_size(256, 1, 1)
-fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let global_gid = global_id.x;
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+    let compact_gid = gid.x;
 
 #ifndef PREPASS
-    if global_id.x == 0 {
-        num_intersections[0] = splat_cum_hit_counts[uniforms.total_splats];
+    if gid.x == 0 {
+        num_intersections[0] = splat_cum_hit_counts[uniforms.num_visible];
     }
 #endif
 
-    if global_gid >= uniforms.total_splats {
+    if compact_gid >= uniforms.num_visible {
         return;
     }
 
-    let bounds = splat_bounds[global_gid];
+    let bounds = splat_bounds[compact_gid];
     let center = vec2f(bounds.center_x, bounds.center_y);
     let extent = vec2f(bounds.extent_x, bounds.extent_y);
-    if extent.x <= 0.0 || extent.y <= 0.0 {
-        return;
-    }
 
     let tile_bbox = helpers::get_tile_bbox(center, extent, uniforms.tile_bounds);
     let tile_bbox_min = tile_bbox.xy;
@@ -41,7 +38,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     var num_tiles_hit = 0u;
 
     #ifndef PREPASS
-        let base_isect_id = splat_cum_hit_counts[global_gid];
+        let base_isect_id = splat_cum_hit_counts[compact_gid];
     #endif
 
     // Nb: It's really really important here the two dispatches
@@ -59,7 +56,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             // These kernels should be launched with bounds checking, so that these
             // writes are ignored. This will skip these intersections.
             tile_id_from_isect[isect_id] = tile_id;
-            compact_gid_from_isect[isect_id] = global_gid;
+            compact_gid_from_isect[isect_id] = compact_gid;
         #endif
 
             num_tiles_hit += 1u;
@@ -67,6 +64,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     #ifdef PREPASS
-        splat_intersect_counts[global_gid + 1u] = num_tiles_hit;
+        splat_intersect_counts[compact_gid + 1u] = num_tiles_hit;
     #endif
 }
