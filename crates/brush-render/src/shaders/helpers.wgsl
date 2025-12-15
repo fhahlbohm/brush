@@ -44,24 +44,30 @@ struct RenderUniforms {
     // Position of camera (xyz + pad)
     camera_position: vec4f,
 
+    // Nb: Alpha is ignored atm.
+    background: vec4f,
+
     // Degree of sh coefficients used.
     sh_degree: u32,
 
 #ifdef UNIFORM_WRITE
-    // Number of visible gaussians and fragments.
+    // Number of visible Gaussians and tile instances.
     // This needs to be non-atomic for other kernels as you can't have
     // read-only atomic data.
     num_visible: atomic<u32>,
+    num_intersections: atomic<u32>,
 #else
-    // Number of visible gaussians and fragments.
+    // Number of visible Gaussians and tile instances.
     num_visible: u32,
+    num_intersections: u32,
 #endif
 
     total_splats: u32,
     max_intersects: u32,
 
-    // Nb: Alpha is ignored atm.
-    background: vec4f,
+    p1_: u32,
+    p2_: u32,
+    p3_: u32,
 }
 
 struct SplatBounds {

@@ -121,6 +121,10 @@ pub(crate) fn render_forward(
         background: [background.x, background.y, background.z, 1.0],
         // Nb: Bit of a hack as these aren't _really_ uniforms but are written to by the shaders.
         num_visible: 0,
+        num_intersections: 0,
+        p1_: 0,
+        p2_: 0,
+        p3_: 0,
     };
 
     // Nb: This contains both static metadata and some dynamic data so can't pass this as metadata to execute. In the future
@@ -137,7 +141,10 @@ pub(crate) fn render_forward(
     let splat_bounds_size = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
     let splat_bounds = create_tensor([total_splats, splat_bounds_size], device, DType::F32);
 
-    let num_visible = {
+    let (cum_tiles_hit, num_visible, num_intersections) = {
+        let splat_intersect_counts =
+            MainBackendBase::int_zeros([total_splats + 1].into(), device, IntDType::U32);
+
         tracing::trace_span!("Project").in_scope(||
             // SAFETY: Kernel checked to have no OOB, bounded loops.
             unsafe {
@@ -154,80 +161,58 @@ pub(crate) fn render_forward(
                     raw_opacities.handle.binding(),
                     projected_splats.handle.clone().binding(),
                     splat_bounds.handle.clone().binding(),
+                    splat_intersect_counts.handle.clone().binding(),
                 ]),
             ).expect("Failed to render splats");
-        });
-
-        // Get just the number of visible splats from the uniforms buffer.
-        let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
-        let num_visible = MainBackendBase::int_slice(
-            uniforms_buffer.clone(),
-            &[(num_vis_field_offset..num_vis_field_offset + 1).into()],
-        );
-
-        num_visible
-    };
-
-    // Each intersection maps to a gaussian.
-    let (tile_offsets, compact_gid_from_isect, num_intersections) = {
-        let num_tiles = tile_bounds.x * tile_bounds.y;
-
-        let splat_intersect_counts =
-            MainBackendBase::int_zeros([total_splats + 1].into(), device, IntDType::U32);
-
-        let num_vis_map_wg =
-            create_dispatch_buffer(num_visible, MapGaussiansToIntersect::WORKGROUP_SIZE);
-
-        // First do a prepass to compute the tile counts, then fill in intersection counts.
-        tracing::trace_span!("MapGaussiansToIntersectPrepass").in_scope(|| {
-            // SAFETY: Kernel checked to have no OOB, bounded loops.
-            unsafe {
-                client
-                    .launch_unchecked(
-                        MapGaussiansToIntersect::task(true),
-                        CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
-                        Bindings::new().with_buffers(vec![
-                            uniforms_buffer.handle.clone().binding(),
-                            splat_bounds.handle.clone().binding(),
-                            splat_intersect_counts.handle.clone().binding(),
-                        ]),
-                    )
-                    .expect("Failed to render splats");
-            }
         });
 
         // TODO: Only need to do this up to num_visible gaussians really.
         let cum_tiles_hit = tracing::trace_span!("PrefixSumGaussHits")
             .in_scope(|| prefix_sum(splat_intersect_counts));
 
+        // Get the number of visible splats and instances from the uniforms buffer.
+        let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
+        let num_visible = MainBackendBase::int_slice(
+            uniforms_buffer.clone(),
+            &[(num_vis_field_offset..num_vis_field_offset + 1).into()],
+        );
+        let num_hits_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_intersections) / 4;
+        let num_intersections = MainBackendBase::int_slice(
+            uniforms_buffer.clone(),
+            &[(num_hits_field_offset..num_hits_field_offset + 1).into()],
+        );
+
+        (cum_tiles_hit, num_visible, num_intersections)
+    };
+
+    // Each intersection maps to a gaussian.
+    let (tile_offsets, compact_gid_from_isect) = {
+        let num_vis_map_wg =
+            create_dispatch_buffer(num_visible, MapGaussiansToIntersect::WORKGROUP_SIZE);
+
         let tile_id_from_isect = create_tensor([max_intersects as usize], device, DType::U32);
         let compact_gid_from_isect = create_tensor([max_intersects as usize], device, DType::U32);
-
-        // Zero this out, as the kernel _might_ not run at all if no gaussians are visible.
-        let num_intersections = MainBackendBase::int_zeros([1].into(), device, IntDType::U32);
 
         tracing::trace_span!("MapGaussiansToIntersect").in_scope(|| {
             // SAFETY: Kernel checked to have no OOB, bounded loops.
             unsafe {
-                client
-                    .launch_unchecked(
-                        MapGaussiansToIntersect::task(false),
-                        CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
-                        Bindings::new().with_buffers(vec![
-                            uniforms_buffer.handle.clone().binding(),
-                            splat_bounds.handle.binding(),
-                            cum_tiles_hit.handle.binding(),
-                            tile_id_from_isect.handle.clone().binding(),
-                            compact_gid_from_isect.handle.clone().binding(),
-                            num_intersections.handle.clone().binding(),
-                        ]),
-                    )
-                    .expect("Failed to render splats");
-            }
+            client.launch_unchecked(
+                MapGaussiansToIntersect::task(false),
+                CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
+                Bindings::new().with_buffers(
+      vec![
+                    uniforms_buffer.handle.clone().binding(),
+                    splat_bounds.handle.binding(),
+                    cum_tiles_hit.handle.binding(),
+                    tile_id_from_isect.handle.clone().binding(),
+                    compact_gid_from_isect.handle.clone().binding(),
+                ]),
+            ).expect("Failed to render splats");}
         });
 
         // We're sorting by tile ID, but we know beforehand what the maximum value
         // can be. We don't need to sort all the leading 0 bits!
+        let num_tiles = tile_bounds.x * tile_bounds.y;
         let bits = u32::BITS - num_tiles.leading_zeros();
 
         let (tile_id_from_isect, compact_gid_from_isect) = tracing::trace_span!("Tile sort")
@@ -290,7 +275,7 @@ pub(crate) fn render_forward(
             .expect("Failed to render splats");
         }
 
-        (tile_offsets, compact_gid_from_isect, num_intersections)
+        (tile_offsets, compact_gid_from_isect)
     };
 
     let _span = tracing::trace_span!("Rasterize").entered();

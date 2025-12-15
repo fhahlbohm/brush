@@ -10,6 +10,7 @@
 
 @group(0) @binding(6) var<storage, read_write> transformed: array<helpers::TransformedSplat>;
 @group(0) @binding(7) var<storage, read_write> splat_bounds: array<helpers::SplatBounds>;
+@group(0) @binding(8) var<storage, read_write> splat_intersect_counts: array<u32>;
 
 struct ShCoeffs {
     b0_c0: vec3f,
@@ -296,5 +297,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         vec4f(color, opac)
     );
     splat_bounds[write_id] = helpers::create_splat_bounds(tile_bbox);
+    atomicAdd(&uniforms.num_intersections, num_tiles_hit);
+    splat_intersect_counts[write_id + 1u] = num_tiles_hit;
 
 }
