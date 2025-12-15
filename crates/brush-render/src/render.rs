@@ -14,10 +14,7 @@ use brush_kernel::{CubeCount, calc_cube_count};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::tensor::{DType, IntDType};
-use burn::tensor::{
-    FloatDType,
-    ops::{FloatTensorOps, IntTensorOps},
-};
+use burn::tensor::ops::IntTensorOps;
 use burn_cubecl::cubecl::server::Bindings;
 
 use burn_cubecl::kernel::into_contiguous;
@@ -121,9 +118,7 @@ pub(crate) fn render_forward(
         // Nb: Bit of a hack as these aren't _really_ uniforms but are written to by the shaders.
         num_visible: 0,
         num_intersections: 0,
-        p1_: 0,
-        p2_: 0,
-        p3_: 0,
+        p1_: 0, p2_: 0, p3_: 0, // padding for 16 byte alignment
     };
 
     // Nb: This contains both static metadata and some dynamic data so can't pass this as metadata to execute. In the future
