@@ -35,35 +35,23 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let tile_bbox_min = tile_bbox.xy;
     let tile_bbox_max = tile_bbox.zw;
 
-    var num_tiles_hit = 0u;
+    let num_tiles_hit = (u32(tile_bbox_max.x) - u32(tile_bbox_min.x)) *
+                        (u32(tile_bbox_max.y) - u32(tile_bbox_min.y));
 
-    #ifndef PREPASS
-        let base_isect_id = splat_cum_hit_counts[compact_gid];
-    #endif
+#ifdef PREPASS
+    splat_intersect_counts[compact_gid + 1u] = num_tiles_hit;
+#endif
 
-    // Nb: It's really really important here the two dispatches
-    // of this kernel arrive at the exact same num_tiles_hit count. Otherwise
-    // we might not be writing some intersection data.
-    // This is a bit scary given potential optimizations that might happen depending
-    // on which version is being ran.
+#ifndef PREPASS
+    var offset = splat_cum_hit_counts[compact_gid];
+
     for (var tx = tile_bbox_min.x; tx < tile_bbox_max.x; tx++) {
         for (var ty = tile_bbox_min.y; ty < tile_bbox_max.y; ty++) {
             let tile_id = tx + ty * uniforms.tile_bounds.x;
-
-        #ifndef PREPASS
-            let isect_id = base_isect_id + num_tiles_hit;
-            // Nb: isect_id MIGHT be out of bounds here for degenerate cases.
-            // These kernels should be launched with bounds checking, so that these
-            // writes are ignored. This will skip these intersections.
-            tile_id_from_isect[isect_id] = tile_id;
-            compact_gid_from_isect[isect_id] = compact_gid;
-        #endif
-
-            num_tiles_hit += 1u;
+            tile_id_from_isect[offset] = tile_id;
+            compact_gid_from_isect[offset] = compact_gid;
+            offset += 1u;
         }
     }
-
-    #ifdef PREPASS
-        splat_intersect_counts[compact_gid + 1u] = num_tiles_hit;
-    #endif
+#endif
 }
