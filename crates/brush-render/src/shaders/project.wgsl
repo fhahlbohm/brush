@@ -168,32 +168,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    const near = 0.2f;
-    const far = 1000.0f;
-
     // early near/far culling based on view-space mean.
     let mean = helpers::as_vec(means[global_gid]);
-    let viewmat = uniforms.viewmat;
-    let depth = viewmat[0].z * mean.x + viewmat[1].z * mean.y + viewmat[2].z * mean.z + viewmat[3].z;
-    if depth < near || depth > far {
+    let M3_xyz = vec3f(uniforms.viewmat[0].z, uniforms.viewmat[1].z, uniforms.viewmat[2].z);
+    let depth = dot(M3_xyz, mean) + uniforms.viewmat[3].z;
+    if depth < 0.2f || depth > 1000.0f {
         return;
     }
 
-    let opac = helpers::sigmoid(raw_opacities[global_gid]);
-    if opac < 1.0f / 255.0f {
-        return;
-    }
-
-    var quat = quats[global_gid];
-    let quat_norm_sqr = dot(quat, quat);
-    if quat_norm_sqr < 1e-6f {
-        return;
-    }
-    quat *= inverseSqrt(quat_norm_sqr);
-    let rot = helpers::quat_to_mat(quat);
-
+    // compute splat-to-world transform T
+    let rot = helpers::quat_to_mat(normalize(quats[global_gid]));
     let scale = exp(helpers::as_vec(log_scales[global_gid]));
-
     let u = rot[0] * scale.x;
     let v = rot[1] * scale.y;
     let w = rot[2] * scale.z;
@@ -204,23 +189,28 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         vec4f(mean, 1.0f)
     );
 
-    // compute VPMT transform
-    let depth_range = far - near;
+    // TODO: precompute VPM on the CPU
+    const near = 0.2f;
+    const far = 1000.0f;
+    const depth_range = far - near;
     let VP = mat4x4f(
-        vec4f(uniforms.focal.x, 0.0f, 0.0f, 0.0f), // 1st col
-        vec4f(0.0f, uniforms.focal.y, 0.0f, 0.0f), // 2nd col
-        vec4f(uniforms.pixel_center.x, uniforms.pixel_center.y, (far + near) / depth_range, 1.0f), // 3rd col
-        vec4f(0.0f, 0.0f, -2.0f * near * far / depth_range, 0.0f) // 4th col
+        vec4f(uniforms.focal.x, 0.0, 0.0, 0.0), // 1st col
+        vec4f(0.0, uniforms.focal.y, 0.0, 0.0), // 2nd col
+        vec4f(uniforms.pixel_center.x, uniforms.pixel_center.y, (far + 0.2) / depth_range, 1.0), // 3rd col
+        vec4f(0.0, 0.0, -2.0 * near * far / depth_range, 0.0) // 4th col
     );
-    let VPMT = VP * viewmat * T; // TODO: precompute VP * viewmat on the CPU
+    let VPM = VP * uniforms.viewmat;
+
+    // compute VPMT transform TODO: dot products instead of matmuls
+    let VPMT = VPM * T;
     let VPMT1 = vec4f(VPMT[0].x, VPMT[1].x, VPMT[2].x, VPMT[3].x);
     let VPMT2 = vec4f(VPMT[0].y, VPMT[1].y, VPMT[2].y, VPMT[3].y);
     let VPMT3 = vec4f(VPMT[0].z, VPMT[1].z, VPMT[2].z, VPMT[3].z);
     let VPMT4 = vec4f(VPMT[0].w, VPMT[1].w, VPMT[2].w, VPMT[3].w);
-    let MT = viewmat * T; // TODO: dont do the full matmul here
-    let MT3 = vec4f(MT[0].z, MT[1].z, MT[2].z, MT[3].z);
+    let MT3 = vec4f(dot(M3_xyz, u), dot(M3_xyz, v), dot(M3_xyz, w), depth);
 
     // compute screen-space bounding box and cull if outside
+    let opac = helpers::sigmoid(raw_opacities[global_gid]);
     let rho_cutoff = 2.0f * log(opac * 255.0f); // corresponds to blending threshold of (1 / 255)
     let t = vec4f(rho_cutoff, rho_cutoff, rho_cutoff, -1.0f);
     let d = dot(t, VPMT4 * VPMT4);
