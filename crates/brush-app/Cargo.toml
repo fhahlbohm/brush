@@ -17,7 +17,7 @@ name = "brush_app"
 path = "src/bin.rs"
 
 [features]
-default = ["training"]
+default = []
 
 training = ["brush-cli/training", "brush-process/training", "brush-ui/training"]
 tracy = ["dep:tracing-subscriber", "dep:tracing-tracy"]
