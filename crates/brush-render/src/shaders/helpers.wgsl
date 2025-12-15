@@ -65,14 +65,14 @@ struct RenderUniforms {
 }
 
 struct SplatBounds {
-    center_x: f32,
-    center_y: f32,
-    extent_x: f32,
-    extent_y: f32,
+    min_x: u32,
+    min_y: u32,
+    max_x: u32,
+    max_y: u32,
 }
 
-fn create_splat_bounds(center: vec2f, extent: vec2f) -> SplatBounds {
-    return SplatBounds(center.x, center.y, extent.x, extent.y);
+fn create_splat_bounds(tile_bbox: vec4u) -> SplatBounds {
+    return SplatBounds(tile_bbox.x, tile_bbox.y, tile_bbox.z, tile_bbox.w);
 }
 
 struct TransformedSplat {

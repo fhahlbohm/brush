@@ -229,9 +229,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let extent = sqrt(max(center * center - vec3f(dot(f, VPMT1 * VPMT1), dot(f, VPMT2 * VPMT2), dot(f, VPMT3 * VPMT3)), vec3f(1e-12f)));
     let min_bounds = center - extent;
     let max_bounds = center + extent;
-    if (max_bounds.x <= 0.0f || min_bounds.x >= f32(uniforms.img_size.x) ||
-        max_bounds.y <= 0.0f || min_bounds.y >= f32(uniforms.img_size.y) ||
-        min_bounds.z <= -1.0f || max_bounds.z >= 1.0f) {
+    if max_bounds.x <= 0.0f || min_bounds.x >= f32(uniforms.img_size.x) ||
+       max_bounds.y <= 0.0f || min_bounds.y >= f32(uniforms.img_size.y) ||
+       min_bounds.z <= -1.0f || max_bounds.z >= 1.0f {
+        return;
+    }
+
+    let tile_bbox = helpers::get_tile_bbox(vec2f(center.xy), vec2f(extent.xy), uniforms.tile_bounds);
+    let num_tiles_hit = (u32(tile_bbox.z) - u32(tile_bbox.x)) * (u32(tile_bbox.w) - u32(tile_bbox.y));
+    if num_tiles_hit == 0u {
         return;
     }
 
@@ -289,6 +295,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         MT3,
         vec4f(color, opac)
     );
-    splat_bounds[write_id] = helpers::create_splat_bounds(center.xy, extent.xy);
+    splat_bounds[write_id] = helpers::create_splat_bounds(tile_bbox);
 
 }
