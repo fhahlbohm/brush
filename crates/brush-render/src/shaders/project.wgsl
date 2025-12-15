@@ -176,20 +176,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    // compute splat-to-world transform T
-    let rot = helpers::quat_to_mat(normalize(quats[global_gid]));
-    let scale = exp(helpers::as_vec(log_scales[global_gid]));
-    let u = rot[0] * scale.x;
-    let v = rot[1] * scale.y;
-    let w = rot[2] * scale.z;
-    let T = mat4x4f(
-        vec4f(u, 0.0f),
-        vec4f(v, 0.0f),
-        vec4f(w, 0.0f),
-        vec4f(mean, 1.0f)
-    );
-
-    // TODO: precompute VPM on the CPU
+    // TODO: precompute transpose(VPM) on the CPU
     const near = 0.2f;
     const far = 1000.0f;
     const depth_range = far - near;
@@ -200,13 +187,22 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         vec4f(0.0, 0.0, -2.0 * near * far / depth_range, 0.0) // 4th col
     );
     let VPM = VP * uniforms.viewmat;
+    let VPM_T = transpose(VPM);
+    let VPM1 = VPM_T[0];
+    let VPM2 = VPM_T[1];
+    let VPM3 = VPM_T[2];
+    let VPM4 = VPM_T[3];
 
-    // compute VPMT transform TODO: dot products instead of matmuls
-    let VPMT = VPM * T;
-    let VPMT1 = vec4f(VPMT[0].x, VPMT[1].x, VPMT[2].x, VPMT[3].x);
-    let VPMT2 = vec4f(VPMT[0].y, VPMT[1].y, VPMT[2].y, VPMT[3].y);
-    let VPMT3 = vec4f(VPMT[0].z, VPMT[1].z, VPMT[2].z, VPMT[3].z);
-    let VPMT4 = vec4f(VPMT[0].w, VPMT[1].w, VPMT[2].w, VPMT[3].w);
+    // compute VPMT transform
+    let rot = helpers::quat_to_mat(normalize(quats[global_gid]));
+    let scale = exp(helpers::as_vec(log_scales[global_gid]));
+    let u = rot[0] * scale.x;
+    let v = rot[1] * scale.y;
+    let w = rot[2] * scale.z;
+    let VPMT1 = vec4f(dot(VPM1.xyz, u), dot(VPM1.xyz, v), dot(VPM1.xyz, w), dot(VPM1.xyz, mean) + VPM1.w);
+    let VPMT2 = vec4f(dot(VPM2.xyz, u), dot(VPM2.xyz, v), dot(VPM2.xyz, w), dot(VPM2.xyz, mean) + VPM2.w);
+    let VPMT3 = vec4f(dot(VPM3.xyz, u), dot(VPM3.xyz, v), dot(VPM3.xyz, w), dot(VPM3.xyz, mean) + VPM3.w);
+    let VPMT4 = vec4f(dot(VPM4.xyz, u), dot(VPM4.xyz, v), dot(VPM4.xyz, w), dot(VPM4.xyz, mean) + VPM4.w);
     let MT3 = vec4f(dot(M3_xyz, u), dot(M3_xyz, v), dot(M3_xyz, w), depth);
 
     // compute screen-space bounding box and cull if outside
