@@ -11,10 +11,11 @@
 @compute
 @workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    if gid.x == 0 {
+    let compact_gid = gid.x;
+
+    if compact_gid == 0 {
         num_intersections[0] = splat_cum_hit_counts[uniforms.num_visible];
     }
-    let compact_gid = gid.x;
 
     if compact_gid >= uniforms.num_visible {
         return;
