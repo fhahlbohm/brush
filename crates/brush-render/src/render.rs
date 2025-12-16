@@ -257,8 +257,6 @@ pub(crate) fn render_forward(
         out_img.handle.clone().binding(),
     ]);
 
-    let visible = create_tensor([1], device, DType::F32);
-
     // Compile the kernel.
     let raster_task = Rasterize::task(cfg!(target_family = "wasm"));
 
@@ -273,9 +271,10 @@ pub(crate) fn render_forward(
             .expect("Failed to render splats");
     }
 
-    // not needed anymore, used to be total_splats instead of 1
+    // these are not needed for inference
+    let visible = create_tensor([1], device, DType::F32);
     let global_from_compact_gid =
-        MainBackendBase::int_zeros([1].into(), device, IntDType::U32);
+        create_tensor([1], device, DType::U32); // int_zeros([total_splats].into(), device, IntDType::U32);
 
     // Sanity check the buffers.
     assert!(
