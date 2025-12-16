@@ -173,7 +173,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let M3 = uniforms.m_z;
     let M3_xyz = vec3f(M3.xyz);
     let depth = dot(M3_xyz, mean) + M3.w;
-    if depth < uniforms.near_plane || depth > uniforms.far_plane {
+    if depth < helpers::NEAR_PLANE || depth > helpers::FAR_PLANE {
         return;
     }
 
@@ -274,7 +274,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         vec4f(color, opac)
     );
     splat_bounds[write_id] = helpers::create_splat_bounds(tile_bbox);
-    atomicAdd(&uniforms.num_intersections, num_tiles_hit);
     splat_intersect_counts[write_id + 1u] = num_tiles_hit;
 
 }

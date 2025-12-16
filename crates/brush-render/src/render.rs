@@ -48,12 +48,9 @@ pub fn max_intersections(tile_bounds: glam::UVec2, num_splats: u32) -> u32 {
 const PROJ_SIZE: usize = size_of::<shaders::helpers::TransformedSplat>() / size_of::<f32>();
 const BOUNDS_SIZE: usize = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
 const NUM_VISIBLE_OFFSET: usize = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
-const NUM_INTERSECTIONS_OFFSET: usize = offset_of!(shaders::helpers::RenderUniforms, num_intersections) / 4;
 
-const NEAR_PLANE: f32 = 0.2; // don't set too close to zero to avoid precision issues
-const FAR_PLANE: f32  = 1000.0; // don't set too high to avoid precision issues
-const VP33: f32 = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
-const VP34: f32 = -2.0 * FAR_PLANE * NEAR_PLANE / (FAR_PLANE - NEAR_PLANE);
+const VP33: f32 = (shaders::helpers::FAR_PLANE + shaders::helpers::NEAR_PLANE) / (shaders::helpers::FAR_PLANE - shaders::helpers::NEAR_PLANE);
+const VP34: f32 = -2.0 * shaders::helpers::FAR_PLANE * shaders::helpers::NEAR_PLANE / (shaders::helpers::FAR_PLANE - shaders::helpers::NEAR_PLANE);
 
 pub(crate) fn render_forward(
     camera: &Camera,
@@ -140,10 +137,6 @@ pub(crate) fn render_forward(
         background: [background.x, background.y, background.z, 1.0],
         // Nb: Bit of a hack as these aren't _really_ uniforms but are written to by the shaders.
         num_visible: 0,
-        num_intersections: 0,
-        near_plane: NEAR_PLANE,
-        far_plane: FAR_PLANE,
-        padding: 0.0, // padding for 16 byte alignment
     };
 
     // Nb: This contains both static metadata and some dynamic data so can't pass this as metadata to execute. In the future
@@ -153,7 +146,7 @@ pub(crate) fn render_forward(
     let projected_splats = create_tensor([total_splats, PROJ_SIZE], device, DType::F32);
     let splat_bounds = create_tensor([total_splats, BOUNDS_SIZE], device, DType::F32);
 
-    let (cum_tiles_hit, num_visible, num_intersections) = {
+    let (cum_tiles_hit, num_visible) = {
         let splat_intersect_counts =
             MainBackendBase::int_zeros([total_splats + 1].into(), device, IntDType::U32);
 
@@ -187,21 +180,20 @@ pub(crate) fn render_forward(
             uniforms_buffer.clone(),
             &[(NUM_VISIBLE_OFFSET..NUM_VISIBLE_OFFSET + 1).into()],
         );
-        let num_intersections = MainBackendBase::int_slice(
-            uniforms_buffer.clone(),
-            &[(NUM_INTERSECTIONS_OFFSET..NUM_INTERSECTIONS_OFFSET + 1).into()],
-        );
 
-        (cum_tiles_hit, num_visible, num_intersections)
+        (cum_tiles_hit, num_visible)
     };
 
     // Each intersection maps to a gaussian.
-    let (tile_offsets, compact_gid_from_isect) = {
+    let (tile_offsets, compact_gid_from_isect, num_intersections) = {
         let num_vis_map_wg =
             create_dispatch_buffer(num_visible, MapGaussiansToIntersect::WORKGROUP_SIZE);
 
         let tile_id_from_isect = create_tensor([max_intersects as usize], device, DType::U32);
         let compact_gid_from_isect = create_tensor([max_intersects as usize], device, DType::U32);
+
+        // Zero this out, as the kernel _might_ not run at all if no gaussians are visible.
+        let num_intersections = MainBackendBase::int_zeros([1].into(), device, IntDType::U32);
 
         tracing::trace_span!("MapGaussiansToIntersect").in_scope(|| {
             // SAFETY: Kernel checked to have no OOB, bounded loops.
@@ -216,6 +208,7 @@ pub(crate) fn render_forward(
                     cum_tiles_hit.handle.binding(),
                     tile_id_from_isect.handle.clone().binding(),
                     compact_gid_from_isect.handle.clone().binding(),
+                    num_intersections.handle.clone().binding(),
                 ]),
             ).expect("Failed to render splats");}
         });
@@ -260,7 +253,7 @@ pub(crate) fn render_forward(
             .expect("Failed to render splats");
         }
 
-        (tile_offsets, compact_gid_from_isect)
+        (tile_offsets, compact_gid_from_isect, num_intersections)
     };
 
     let _span = tracing::trace_span!("Rasterize").entered();

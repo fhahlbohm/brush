@@ -1,5 +1,7 @@
 const TILE_WIDTH: u32 = 16u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
+const NEAR_PLANE: f32 = 0.2f; // don't set too close to zero to avoid precision issues
+const FAR_PLANE: f32  = 1000.0f; // don't set too high to avoid precision issues
 
 // Helper function to compact bits for 2D z-order decoding
 fn compact_bits_16(v: u32) -> u32 {
@@ -57,24 +59,17 @@ struct RenderUniforms {
     sh_degree: u32,
 
 #ifdef UNIFORM_WRITE
-    // Number of visible Gaussians and tile instances.
+    // Number of visible gaussians.
     // This needs to be non-atomic for other kernels as you can't have
     // read-only atomic data.
     num_visible: atomic<u32>,
-    num_intersections: atomic<u32>,
 #else
-    // Number of visible Gaussians and tile instances.
+    // Number of visible gaussians.
     num_visible: u32,
-    num_intersections: u32,
 #endif
 
     total_splats: u32,
     max_intersects: u32,
-
-    near_plane: f32,
-    far_plane: f32,
-
-    padding: f32,
 }
 
 struct SplatBounds {

@@ -26,6 +26,8 @@ pub mod helpers {
     // Constants are now associated with the kernel structs
     pub const TILE_SIZE: u32 = super::Rasterize::TILE_SIZE;
     pub const TILE_WIDTH: u32 = super::Rasterize::TILE_WIDTH;
+    pub const NEAR_PLANE: f32 = super::Project::NEAR_PLANE;
+    pub const FAR_PLANE: f32 = super::Project::FAR_PLANE;
 }
 
 // Re-export module-specific constants
