@@ -29,17 +29,23 @@ fn map_1d_to_2d(id: u32, tiles_per_row: u32) -> vec2<u32> {
 }
 
 struct RenderUniforms {
-    // View matrix transform world to view position.
-    viewmat: mat4x4f,
+    // Transposed world to screen transform.
+    vpm_t: mat4x4f,
+
+    // Third row of world to camera transform.
+    m_z: vec4f,
 
     // Focal of camera (fx, fy)
     focal: vec2f,
+
+    // Camera center (cx, cy).
+    pixel_center: vec2f,
+
     // Img resolution (w, h)
     img_size: vec2u,
 
+    // Tile bounds (num_tiles_x, num_tiles_y)
     tile_bounds: vec2u,
-    // Camera center (cx, cy).
-    pixel_center: vec2f,
 
     // Position of camera (xyz + pad)
     camera_position: vec4f,
@@ -65,9 +71,10 @@ struct RenderUniforms {
     total_splats: u32,
     max_intersects: u32,
 
-    p1_: u32,
-    p2_: u32,
-    p3_: u32,
+    near_plane: f32,
+    far_plane: f32,
+
+    padding: f32,
 }
 
 struct SplatBounds {

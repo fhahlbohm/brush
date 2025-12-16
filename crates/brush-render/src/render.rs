@@ -20,7 +20,7 @@ use burn_cubecl::cubecl::server::Bindings;
 use burn_cubecl::kernel::into_contiguous;
 use burn_wgpu::WgpuRuntime;
 use burn_wgpu::{CubeDim, CubeTensor};
-use glam::{Vec3, uvec2};
+use glam::{Vec3, uvec2, vec4};
 use std::mem::offset_of;
 
 pub(crate) fn calc_tile_bounds(img_size: glam::UVec2) -> glam::UVec2 {
@@ -47,6 +47,11 @@ pub fn max_intersections(tile_bounds: glam::UVec2, num_splats: u32) -> u32 {
 
 const PROJ_SIZE: usize = size_of::<shaders::helpers::TransformedSplat>() / size_of::<f32>();
 const BOUNDS_SIZE: usize = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
+
+const NEAR_PLANE: f32 = 0.2; // don't set too close to zero to avoid precision issues
+const FAR_PLANE: f32  = 1000.0; // don't set too high to avoid precision issues
+const VP33: f32 = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
+const VP34: f32 = -2.0 * FAR_PLANE * NEAR_PLANE / (FAR_PLANE - NEAR_PLANE);
 
 pub(crate) fn render_forward(
     camera: &Camera,
@@ -104,12 +109,27 @@ pub(crate) fn render_forward(
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] as u32);
     let total_splats = means.shape.dims[0];
     let max_intersects = max_intersections(tile_bounds, total_splats as u32);
+    let focal = camera.focal(img_size);
+    let center = camera.center(img_size);
+
+    // splat transform uniforms.
+    let vp = glam::Mat4::from_cols(
+        vec4(focal.x, 0.0, 0.0, 0.0),
+        vec4(0.0, focal.y, 0.0, 0.0),
+        vec4(center.x, center.y, VP33, 1.0),
+        vec4(0.0, 0.0, VP34, 0.0),
+    );
+    let w2c = glam::Mat4::from(camera.world_to_local());
+    let vpm = vp * w2c;
+    let vpm_t = vpm.transpose();
+    let m_z = w2c.row(2);
 
     let uniforms = shaders::helpers::RenderUniforms {
-        viewmat: glam::Mat4::from(camera.world_to_local()).to_cols_array_2d(),
+        vpm_t: vpm_t.to_cols_array_2d(),
+        m_z: m_z.into(),
         camera_position: [camera.position.x, camera.position.y, camera.position.z, 0.0],
-        focal: camera.focal(img_size).into(),
-        pixel_center: camera.center(img_size).into(),
+        focal: focal.into(),
+        pixel_center: center.into(),
         img_size: img_size.into(),
         tile_bounds: tile_bounds.into(),
         sh_degree,
@@ -119,7 +139,9 @@ pub(crate) fn render_forward(
         // Nb: Bit of a hack as these aren't _really_ uniforms but are written to by the shaders.
         num_visible: 0,
         num_intersections: 0,
-        p1_: 0, p2_: 0, p3_: 0, // padding for 16 byte alignment
+        near_plane: NEAR_PLANE,
+        far_plane: FAR_PLANE,
+        padding: 0.0, // padding for 16 byte alignment
     };
 
     // Nb: This contains both static metadata and some dynamic data so can't pass this as metadata to execute. In the future

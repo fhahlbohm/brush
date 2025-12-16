@@ -170,28 +170,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     // early near/far culling based on view-space mean.
     let mean = helpers::as_vec(means[global_gid]);
-    let M3_xyz = vec3f(uniforms.viewmat[0].z, uniforms.viewmat[1].z, uniforms.viewmat[2].z);
-    let depth = dot(M3_xyz, mean) + uniforms.viewmat[3].z;
-    if depth < 0.2f || depth > 1000.0f {
+    let M3 = uniforms.m_z;
+    let M3_xyz = vec3f(M3.xyz);
+    let depth = dot(M3_xyz, mean) + M3.w;
+    if depth < uniforms.near_plane || depth > uniforms.far_plane {
         return;
     }
-
-    // TODO: precompute transpose(VPM) on the CPU
-    const near = 0.2f;
-    const far = 1000.0f;
-    const depth_range = far - near;
-    let VP = mat4x4f(
-        vec4f(uniforms.focal.x, 0.0, 0.0, 0.0), // 1st col
-        vec4f(0.0, uniforms.focal.y, 0.0, 0.0), // 2nd col
-        vec4f(uniforms.pixel_center.x, uniforms.pixel_center.y, (far + 0.2) / depth_range, 1.0), // 3rd col
-        vec4f(0.0, 0.0, -2.0 * near * far / depth_range, 0.0) // 4th col
-    );
-    let VPM = VP * uniforms.viewmat;
-    let VPM_T = transpose(VPM);
-    let VPM1 = VPM_T[0];
-    let VPM2 = VPM_T[1];
-    let VPM3 = VPM_T[2];
-    let VPM4 = VPM_T[3];
 
     // compute VPMT transform
     let rot = helpers::quat_to_mat(normalize(quats[global_gid]));
@@ -199,6 +183,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let u = rot[0] * scale.x;
     let v = rot[1] * scale.y;
     let w = rot[2] * scale.z;
+    let VPM_T = uniforms.vpm_t;
+    let VPM1 = VPM_T[0];
+    let VPM2 = VPM_T[1];
+    let VPM3 = VPM_T[2];
+    let VPM4 = VPM_T[3];
     let VPMT1 = vec4f(dot(VPM1.xyz, u), dot(VPM1.xyz, v), dot(VPM1.xyz, w), dot(VPM1.xyz, mean) + VPM1.w);
     let VPMT2 = vec4f(dot(VPM2.xyz, u), dot(VPM2.xyz, v), dot(VPM2.xyz, w), dot(VPM2.xyz, mean) + VPM2.w);
     let VPMT3 = vec4f(dot(VPM3.xyz, u), dot(VPM3.xyz, v), dot(VPM3.xyz, w), dot(VPM3.xyz, mean) + VPM3.w);
