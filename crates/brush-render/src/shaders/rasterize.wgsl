@@ -94,7 +94,7 @@ fn main(
 
             if (depth < core_depths[K - 1u] && alpha >= 0.05f) {
                 // pack
-                var rgba_premult_packed: u32 = helpers::pack_rgba8(rgba_premult);
+                var rgba_premult_packed = helpers::pack_rgba8(rgba_premult);
                 // insert
                 for (var core_idx = 0u; core_idx < K; core_idx++) {
                     if (depth < core_depths[core_idx]) {

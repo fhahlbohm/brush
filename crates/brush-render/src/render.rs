@@ -47,6 +47,8 @@ pub fn max_intersections(tile_bounds: glam::UVec2, num_splats: u32) -> u32 {
 
 const PROJ_SIZE: usize = size_of::<shaders::helpers::TransformedSplat>() / size_of::<f32>();
 const BOUNDS_SIZE: usize = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
+const NUM_VISIBLE_OFFSET: usize = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
+const NUM_INTERSECTIONS_OFFSET: usize = offset_of!(shaders::helpers::RenderUniforms, num_intersections) / 4;
 
 const NEAR_PLANE: f32 = 0.2; // don't set too close to zero to avoid precision issues
 const FAR_PLANE: f32  = 1000.0; // don't set too high to avoid precision issues
@@ -181,15 +183,13 @@ pub(crate) fn render_forward(
             .in_scope(|| prefix_sum(splat_intersect_counts));
 
         // Get the number of visible splats and instances from the uniforms buffer.
-        let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
         let num_visible = MainBackendBase::int_slice(
             uniforms_buffer.clone(),
-            &[(num_vis_field_offset..num_vis_field_offset + 1).into()],
+            &[(NUM_VISIBLE_OFFSET..NUM_VISIBLE_OFFSET + 1).into()],
         );
-        let num_hits_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_intersections) / 4;
         let num_intersections = MainBackendBase::int_slice(
             uniforms_buffer.clone(),
-            &[(num_hits_field_offset..num_hits_field_offset + 1).into()],
+            &[(NUM_INTERSECTIONS_OFFSET..NUM_INTERSECTIONS_OFFSET + 1).into()],
         );
 
         (cum_tiles_hit, num_visible, num_intersections)
