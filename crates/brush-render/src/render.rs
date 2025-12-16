@@ -36,9 +36,7 @@ pub(crate) fn calc_tile_bounds(img_size: glam::UVec2) -> glam::UVec2 {
 // dispatch to avoid this.
 // Estimating the max number of intersects can be a bad hack though... The worst case scenario is so massive
 // that it's easy to run out of memory... How do we actually properly deal with this :/
-pub fn max_intersections(img_size: glam::UVec2, num_splats: u32) -> u32 {
-    // Divide screen into tiles.
-    let tile_bounds = calc_tile_bounds(img_size);
+pub fn max_intersections(tile_bounds: glam::UVec2, num_splats: u32) -> u32 {
     // Assume on average each splat is maximally covering half x half the screen,
     // and adjust for the variance such that we're fairly certain we have enough intersections.
     let num_tiles = tile_bounds[0] * tile_bounds[1];
@@ -46,6 +44,9 @@ pub fn max_intersections(img_size: glam::UVec2, num_splats: u32) -> u32 {
     // clamp to max nr. of dispatches.
     max_possible.min(INTERSECTS_UPPER_BOUND)
 }
+
+const PROJ_SIZE: usize = size_of::<shaders::helpers::TransformedSplat>() / size_of::<f32>();
+const BOUNDS_SIZE: usize = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
 
 pub(crate) fn render_forward(
     camera: &Camera,
@@ -72,7 +73,7 @@ pub(crate) fn render_forward(
     let raw_opacities = into_contiguous(raw_opacities);
 
     let device = &means.device.clone();
-    let client = means.client.clone();
+    let client = &means.client.clone();
 
     let _span = tracing::trace_span!("render_forward").entered();
 
@@ -102,7 +103,7 @@ pub(crate) fn render_forward(
     // Tile rendering setup.
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] as u32);
     let total_splats = means.shape.dims[0];
-    let max_intersects = max_intersections(img_size, total_splats as u32);
+    let max_intersects = max_intersections(tile_bounds, total_splats as u32);
 
     let uniforms = shaders::helpers::RenderUniforms {
         viewmat: glam::Mat4::from(camera.world_to_local()).to_cols_array_2d(),
@@ -123,17 +124,10 @@ pub(crate) fn render_forward(
 
     // Nb: This contains both static metadata and some dynamic data so can't pass this as metadata to execute. In the future
     // should separate the two.
-    let uniforms_buffer = create_uniform_buffer(uniforms, device, &client);
+    let uniforms_buffer = create_uniform_buffer(uniforms, device, client);
 
-    let client = &means.client.clone();
-
-    // Create a buffer of 'projected' splats, that is,
-    // project XY, projected conic, and converted color.
-    let proj_size = size_of::<shaders::helpers::TransformedSplat>() / size_of::<f32>();
-    let projected_splats = create_tensor([total_splats, proj_size], device, DType::F32);
-
-    let splat_bounds_size = size_of::<shaders::helpers::SplatBounds>() / size_of::<f32>();
-    let splat_bounds = create_tensor([total_splats, splat_bounds_size], device, DType::F32);
+    let projected_splats = create_tensor([total_splats, PROJ_SIZE], device, DType::F32);
+    let splat_bounds = create_tensor([total_splats, BOUNDS_SIZE], device, DType::F32);
 
     let (cum_tiles_hit, num_visible, num_intersections) = {
         let splat_intersect_counts =
@@ -279,8 +273,9 @@ pub(crate) fn render_forward(
             .expect("Failed to render splats");
     }
 
+    // not needed anymore, used to be total_splats instead of 1
     let global_from_compact_gid =
-        MainBackendBase::int_zeros([total_splats].into(), device, IntDType::U32); // TODO: remove
+        MainBackendBase::int_zeros([1].into(), device, IntDType::U32);
 
     // Sanity check the buffers.
     assert!(
