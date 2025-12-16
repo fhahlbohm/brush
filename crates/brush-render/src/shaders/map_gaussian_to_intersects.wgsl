@@ -21,10 +21,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     let tile_bbox = splat_bounds[compact_gid];
+    let tile_bounds_x = uniforms.tile_bounds.x;
     var offset = splat_cum_hit_counts[compact_gid];
-    for (var tx = tile_bbox.min_x; tx < tile_bbox.max_x; tx++) {
-        for (var ty = tile_bbox.min_y; ty < tile_bbox.max_y; ty++) {
-            let tile_id = tx + ty * uniforms.tile_bounds.x;
+    for (var ty = tile_bbox.min_y; ty < tile_bbox.max_y; ty++) {
+        let row_start_id = ty * tile_bounds_x;
+        for (var tx = tile_bbox.min_x; tx < tile_bbox.max_x; tx++) {
+            let tile_id = tx + row_start_id;
             tile_id_from_isect[offset] = tile_id;
             compact_gid_from_isect[offset] = compact_gid;
             offset += 1u;
