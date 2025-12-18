@@ -140,8 +140,6 @@ fn main(
             let conic = vec3f(proj.conic_x, proj.conic_y, proj.conic_z);
             let color = vec4f(proj.color_r, proj.color_g, proj.color_b, proj.color_a);
 
-            let clamped_rgb = max(color.rgb, vec3f(0.0f));
-
             for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
                 if dones[i] { continue; }
 
@@ -164,14 +162,14 @@ fn main(
                 let vis = alpha * pix_outs[i].a;
 
                 // update v_colors for this gaussian
-                let v_rgb_local = select(vec3f(0.0f), vis * v_outs[i].rgb, color.rgb >= vec3f(0.0f));
+                let v_rgb_local = vis * v_outs[i].rgb;
                 v_rgb_thread += v_rgb_local;
 
                 // add contribution of this gaussian to the pixel
-                pix_outs[i] = vec4f(pix_outs[i].rgb + vis * clamped_rgb, pix_outs[i].a);
+                pix_outs[i] = vec4f(pix_outs[i].rgb + vis * color.rgb, pix_outs[i].a);
 
                 let ra = 1.0f / (1.0f - alpha);
-                let v_alpha = dot(pix_outs[i].a * clamped_rgb + (pix_outs[i].rgb - rgb_pixel_finals[i].rgb) * ra, v_outs[i].rgb) + v_outs[i].a * ra;
+                let v_alpha = dot(pix_outs[i].a * color.rgb + (pix_outs[i].rgb - rgb_pixel_finals[i].rgb) * ra, v_outs[i].rgb) + v_outs[i].a * ra;
                 let v_sigma = -alpha * v_alpha;
                 let v_xy_local = v_sigma * vec2f(
                     conic.x * delta.x + conic.y * delta.y,

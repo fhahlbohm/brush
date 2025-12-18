@@ -214,7 +214,7 @@ impl SplatTrainer {
         );
 
         let optimizer = self.optim.get_or_insert_with(|| {
-            let sh_degree = splats.sh_degree();
+            let sh_degree = 3;
 
             let coeff_count = sh_coeffs_for_degree(sh_degree) as i32;
             let sh_size = coeff_count;

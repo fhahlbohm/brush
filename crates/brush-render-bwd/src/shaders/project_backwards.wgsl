@@ -5,148 +5,168 @@
 @group(0) @binding(1) var<storage, read> means: array<helpers::PackedVec3>;
 @group(0) @binding(2) var<storage, read> log_scales: array<helpers::PackedVec3>;
 @group(0) @binding(3) var<storage, read> quats: array<vec4f>;
+@group(0) @binding(4) var<storage, read> coeffs: array<helpers::PackedVec3>;
 
-@group(0) @binding(4) var<storage, read> global_from_compact_gid: array<u32>;
+@group(0) @binding(5) var<storage, read> global_from_compact_gid: array<u32>;
 
-@group(0) @binding(5) var<storage, read> v_grads: array<vec4f>;
+@group(0) @binding(6) var<storage, read> v_grads: array<vec4f>;
 
-@group(0) @binding(6) var<storage, read_write> v_means: array<helpers::PackedVec3>;
-@group(0) @binding(7) var<storage, read_write> v_scales: array<helpers::PackedVec3>;
-@group(0) @binding(8) var<storage, read_write> v_quats: array<vec4f>;
-@group(0) @binding(9) var<storage, read_write> v_coeffs: array<f32>;
+@group(0) @binding(7) var<storage, read_write> v_means: array<helpers::PackedVec3>;
+@group(0) @binding(8) var<storage, read_write> v_scales: array<helpers::PackedVec3>;
+@group(0) @binding(9) var<storage, read_write> v_quats: array<vec4f>;
+@group(0) @binding(10) var<storage, read_write> v_coeffs: array<f32>;
 
-const SH_C0: f32 = 0.2820947917738781f;
+struct SvCoeffs {
+    s0_c: vec3f,
+    s0_s: vec3f,
 
-struct ShCoeffs {
-    b0_c0: vec3f,
+    s1_c: vec3f,
+    s1_s: vec3f,
 
-    b1_c0: vec3f,
-    b1_c1: vec3f,
-    b1_c2: vec3f,
+    s2_c: vec3f,
+    s2_s: vec3f,
 
-    b2_c0: vec3f,
-    b2_c1: vec3f,
-    b2_c2: vec3f,
-    b2_c3: vec3f,
-    b2_c4: vec3f,
+    s3_c: vec3f,
+    s3_s: vec3f,
 
-    b3_c0: vec3f,
-    b3_c1: vec3f,
-    b3_c2: vec3f,
-    b3_c3: vec3f,
-    b3_c4: vec3f,
-    b3_c5: vec3f,
-    b3_c6: vec3f,
+    s4_c: vec3f,
+    s4_s: vec3f,
 
-    b4_c0: vec3f,
-    b4_c1: vec3f,
-    b4_c2: vec3f,
-    b4_c3: vec3f,
-    b4_c4: vec3f,
-    b4_c5: vec3f,
-    b4_c6: vec3f,
-    b4_c7: vec3f,
-    b4_c8: vec3f,
+    s5_c: vec3f,
+    s5_s: vec3f,
+
+    s6_c: vec3f,
+    s6_s: vec3f,
+
+    s7_c: vec3f,
+    s7_s: vec3f,
 }
 
-fn sh_coeffs_to_color_fast_vjp(
-    degree: u32,
+fn sv_coeffs_to_color_grad(
     viewdir: vec3f,
+    sv: SvCoeffs,
     v_colors: vec3f,
-) -> ShCoeffs {
-    var v_coeffs = ShCoeffs();
+) -> SvCoeffs {
+    var v_coeffs = SvCoeffs();
 
-    // Expects v_colors to be len CHANNELS
-    // and v_coeffs to be num_bases * CHANNELS
-    v_coeffs.b0_c0 = SH_C0 * v_colors;
+    var weights_sum = 0.0f;
+    var total_color = vec3f(0.0);
 
-    if (degree == 0) {
-        return v_coeffs;
+    // site 0
+    let w0 = exp(dot(sv.s0_s, viewdir));
+    weights_sum += w0;
+    total_color += w0 * sv.s0_c;
+
+    // site 1
+    let w1 = exp(dot(sv.s1_s, viewdir));
+    weights_sum += w1;
+    total_color += w1 * sv.s1_c;
+
+    // site 2
+    let w2 = exp(dot(sv.s2_s, viewdir));
+    weights_sum += w2;
+    total_color += w2 * sv.s2_c;
+
+    // site 3
+    let w3 = exp(dot(sv.s3_s, viewdir));
+    weights_sum += w3;
+    total_color += w3 * sv.s3_c;
+
+    // site 4
+    let w4 = exp(dot(sv.s4_s, viewdir));
+    weights_sum += w4;
+    total_color += w4 * sv.s4_c;
+
+    // site 5
+    let w5 = exp(dot(sv.s5_s, viewdir));
+    weights_sum += w5;
+    total_color += w5 * sv.s5_c;
+
+    // site 6
+    let w6 = exp(dot(sv.s6_s, viewdir));
+    weights_sum += w6;
+    total_color += w6 * sv.s6_c;
+
+    // site 7
+    let w7 = exp(dot(sv.s7_s, viewdir));
+    weights_sum += w7;
+    total_color += w7 * sv.s7_c;
+
+    let final_color = total_color / weights_sum;
+
+    let inv_ws = 1.0f / weights_sum;
+
+    // site 0
+    {
+        let wi = w0;
+        v_coeffs.s0_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s0_c - final_color)) * inv_ws;
+        v_coeffs.s0_s = v_wi * wi * viewdir;
     }
-    let x = viewdir.x;
-    let y = viewdir.y;
-    let z = viewdir.z;
 
-    let fTmp0A = 0.48860251190292f;
-    v_coeffs.b1_c0 = -fTmp0A * y * v_colors;
-    v_coeffs.b1_c1 = fTmp0A * z * v_colors;
-    v_coeffs.b1_c2 = -fTmp0A * x * v_colors;
-
-    if (degree == 1) {
-        return v_coeffs;
+    // site 1
+    {
+        let wi = w1;
+        v_coeffs.s1_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s1_c - final_color)) * inv_ws;
+        v_coeffs.s1_s = v_wi * wi * viewdir;
     }
 
-    let z2 = z * z;
-    let fTmp0B = -1.092548430592079f * z;
-    let fTmp1A = 0.5462742152960395f;
-    let fC1 = x * x - y * y;
-    let fS1 = 2.f * x * y;
-    let pSH6 = (0.9461746957575601f * z2 - 0.3153915652525201f);
-    let pSH7 = fTmp0B * x;
-    let pSH5 = fTmp0B * y;
-    let pSH8 = fTmp1A * fC1;
-    let pSH4 = fTmp1A * fS1;
-    v_coeffs.b2_c0 = pSH4 * v_colors;
-    v_coeffs.b2_c1 = pSH5 * v_colors;
-    v_coeffs.b2_c2 = pSH6 * v_colors;
-    v_coeffs.b2_c3 = pSH7 * v_colors;
-    v_coeffs.b2_c4 = pSH8 * v_colors;
-
-    if (degree == 2) {
-        return v_coeffs;
+    // site 2
+    {
+        let wi = w2;
+        v_coeffs.s2_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s2_c - final_color)) * inv_ws;
+        v_coeffs.s2_s = v_wi * wi * viewdir;
     }
 
-    let fTmp0C = -2.285228997322329f * z2 + 0.4570457994644658f;
-    let fTmp1B = 1.445305721320277f * z;
-    let fTmp2A = -0.5900435899266435f;
-    let fC2 = x * fC1 - y * fS1;
-    let fS2 = x * fS1 + y * fC1;
-    let pSH12 = z * (1.865881662950577f * z2 - 1.119528997770346f);
-    let pSH13 = fTmp0C * x;
-    let pSH11 = fTmp0C * y;
-    let pSH14 = fTmp1B * fC1;
-    let pSH10 = fTmp1B * fS1;
-    let pSH15 = fTmp2A * fC2;
-    let pSH9  = fTmp2A * fS2;
-    v_coeffs.b3_c0 = pSH9 * v_colors;
-    v_coeffs.b3_c1 = pSH10 * v_colors;
-    v_coeffs.b3_c2 = pSH11 * v_colors;
-    v_coeffs.b3_c3 = pSH12 * v_colors;
-    v_coeffs.b3_c4 = pSH13 * v_colors;
-    v_coeffs.b3_c5 = pSH14 * v_colors;
-    v_coeffs.b3_c6 = pSH15 * v_colors;
-    if (degree == 3) {
-        return v_coeffs;
+    // site 3
+    {
+        let wi = w3;
+        v_coeffs.s3_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s3_c - final_color)) * inv_ws;
+        v_coeffs.s3_s = v_wi * wi * viewdir;
     }
-    let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
-    let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
-    let fTmp2B = -1.770130769779931f * z;
-    let fTmp3A = 0.6258357354491763f;
-    let fC3 = x * fC2 - y * fS2;
-    let fS3 = x * fS2 + y * fC2;
-    let pSH20 = (1.984313483298443f * z * pSH12 + -1.006230589874905f * pSH6);
-    let pSH21 = fTmp0D * x;
-    let pSH19 = fTmp0D * y;
-    let pSH22 = fTmp1C * fC1;
-    let pSH18 = fTmp1C * fS1;
-    let pSH23 = fTmp2B * fC2;
-    let pSH17 = fTmp2B * fS2;
-    let pSH24 = fTmp3A * fC3;
-    let pSH16 = fTmp3A * fS3;
-    v_coeffs.b4_c0 = pSH16 * v_colors;
-    v_coeffs.b4_c1 = pSH17 * v_colors;
-    v_coeffs.b4_c2 = pSH18 * v_colors;
-    v_coeffs.b4_c3 = pSH19 * v_colors;
-    v_coeffs.b4_c4 = pSH20 * v_colors;
-    v_coeffs.b4_c5 = pSH21 * v_colors;
-    v_coeffs.b4_c6 = pSH22 * v_colors;
-    v_coeffs.b4_c7 = pSH23 * v_colors;
-    v_coeffs.b4_c8 = pSH24 * v_colors;
+
+    // site 4
+    {
+        let wi = w4;
+        v_coeffs.s4_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s4_c - final_color)) * inv_ws;
+        v_coeffs.s4_s = v_wi * wi * viewdir;
+    }
+
+    // site 5
+    {
+        let wi = w5;
+        v_coeffs.s5_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s5_c - final_color)) * inv_ws;
+        v_coeffs.s5_s = v_wi * wi * viewdir;
+    }
+
+    // site 6
+    {
+        let wi = w6;
+        v_coeffs.s6_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s6_c - final_color)) * inv_ws;
+        v_coeffs.s6_s = v_wi * wi * viewdir;
+    }
+
+    // site 7
+    {
+        let wi = w7;
+        v_coeffs.s7_c = v_colors * (wi * inv_ws);
+        let v_wi = dot(v_colors, (sv.s7_c - final_color)) * inv_ws;
+        v_coeffs.s7_s = v_wi * wi * viewdir;
+    }
+
     return v_coeffs;
 }
 
-fn num_sh_coeffs(degree: u32) -> u32 {
-    return (degree + 1) * (degree + 1);
+fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
+    let ret = helpers::as_vec(coeffs[*base_id]);
+    *base_id += 1u;
+    return ret;
 }
 
 fn write_coeffs(base_id: ptr<function, u32>, val: vec3f) {
@@ -317,44 +337,45 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let viewdir = normalize(mean - uniforms.camera_position.xyz);
 
-    let sh_degree = uniforms.sh_degree;
-    let v_coeff = sh_coeffs_to_color_fast_vjp(sh_degree, viewdir, v_color);
-    let num_coeffs = num_sh_coeffs(sh_degree);
-    var base_id = global_gid * num_coeffs * 3;
+    var base_id = u32(global_gid) * 16;
 
-    write_coeffs(&base_id, v_coeff.b0_c0);
-    if sh_degree > 0 {
-        write_coeffs(&base_id, v_coeff.b1_c0);
-        write_coeffs(&base_id, v_coeff.b1_c1);
-        write_coeffs(&base_id, v_coeff.b1_c2);
-        if sh_degree > 1 {
-            write_coeffs(&base_id, v_coeff.b2_c0);
-            write_coeffs(&base_id, v_coeff.b2_c1);
-            write_coeffs(&base_id, v_coeff.b2_c2);
-            write_coeffs(&base_id, v_coeff.b2_c3);
-            write_coeffs(&base_id, v_coeff.b2_c4);
-            if sh_degree > 2 {
-                write_coeffs(&base_id, v_coeff.b3_c0);
-                write_coeffs(&base_id, v_coeff.b3_c1);
-                write_coeffs(&base_id, v_coeff.b3_c2);
-                write_coeffs(&base_id, v_coeff.b3_c3);
-                write_coeffs(&base_id, v_coeff.b3_c4);
-                write_coeffs(&base_id, v_coeff.b3_c5);
-                write_coeffs(&base_id, v_coeff.b3_c6);
-                if sh_degree > 3 {
-                    write_coeffs(&base_id, v_coeff.b4_c0);
-                    write_coeffs(&base_id, v_coeff.b4_c1);
-                    write_coeffs(&base_id, v_coeff.b4_c2);
-                    write_coeffs(&base_id, v_coeff.b4_c3);
-                    write_coeffs(&base_id, v_coeff.b4_c4);
-                    write_coeffs(&base_id, v_coeff.b4_c5);
-                    write_coeffs(&base_id, v_coeff.b4_c6);
-                    write_coeffs(&base_id, v_coeff.b4_c7);
-                    write_coeffs(&base_id, v_coeff.b4_c8);
-                }
-            }
-        }
-    }
+    var sv = SvCoeffs();
+    sv.s0_c = read_coeffs(&base_id);
+    sv.s0_s = read_coeffs(&base_id);
+    sv.s1_c = read_coeffs(&base_id);
+    sv.s1_s = read_coeffs(&base_id);
+    sv.s2_c = read_coeffs(&base_id);
+    sv.s2_s = read_coeffs(&base_id);
+    sv.s3_c = read_coeffs(&base_id);
+    sv.s3_s = read_coeffs(&base_id);
+    sv.s4_c = read_coeffs(&base_id);
+    sv.s4_s = read_coeffs(&base_id);
+    sv.s5_c = read_coeffs(&base_id);
+    sv.s5_s = read_coeffs(&base_id);
+    sv.s6_c = read_coeffs(&base_id);
+    sv.s6_s = read_coeffs(&base_id);
+    sv.s7_c = read_coeffs(&base_id);
+    sv.s7_s = read_coeffs(&base_id);
+
+    let v_coeff = sv_coeffs_to_color_grad(viewdir, sv, v_color);
+    base_id = global_gid * 16 * 3;
+
+    write_coeffs(&base_id, v_coeff.s0_c);
+    write_coeffs(&base_id, v_coeff.s0_s);
+    write_coeffs(&base_id, v_coeff.s1_c);
+    write_coeffs(&base_id, v_coeff.s1_s);
+    write_coeffs(&base_id, v_coeff.s2_c);
+    write_coeffs(&base_id, v_coeff.s2_s);
+    write_coeffs(&base_id, v_coeff.s3_c);
+    write_coeffs(&base_id, v_coeff.s3_s);
+    write_coeffs(&base_id, v_coeff.s4_c);
+    write_coeffs(&base_id, v_coeff.s4_s);
+    write_coeffs(&base_id, v_coeff.s5_c);
+    write_coeffs(&base_id, v_coeff.s5_s);
+    write_coeffs(&base_id, v_coeff.s6_c);
+    write_coeffs(&base_id, v_coeff.s6_s);
+    write_coeffs(&base_id, v_coeff.s7_c);
+    write_coeffs(&base_id, v_coeff.s7_s);
 
     let R = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let mean_c = R * mean + viewmat[3].xyz;

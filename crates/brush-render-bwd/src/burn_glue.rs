@@ -2,7 +2,6 @@ use brush_render::{
     MainBackendBase, SplatForward,
     camera::Camera,
     render_aux::RenderAux,
-    sh::{sh_coeffs_for_degree, sh_degree_from_coeffs},
 };
 use burn::{
     backend::{
@@ -73,13 +72,13 @@ impl SplatBackwardOps<Self> for MainBackendBase {
             state.means,
             state.quats,
             state.log_scales,
+            state.coeffs,
             state.out_img,
             state.projected_splats,
             state.uniforms_buffer,
             state.compact_gid_from_isect,
             state.global_from_compact_gid,
             state.tile_offsets,
-            state.sh_degree,
         )
     }
 }
@@ -90,13 +89,13 @@ pub struct GaussianBackwardState<B: Backend> {
     quats: FloatTensor<B>,
     log_scales: FloatTensor<B>,
     raw_opac: FloatTensor<B>,
+    coeffs: FloatTensor<B>,
     out_img: FloatTensor<B>,
     projected_splats: FloatTensor<B>,
     uniforms_buffer: IntTensor<B>,
     compact_gid_from_isect: IntTensor<B>,
     global_from_compact_gid: IntTensor<B>,
     tile_offsets: IntTensor<B>,
-    sh_degree: u32,
 }
 
 #[derive(Debug)]
@@ -231,10 +230,7 @@ impl<B: Backend + SplatBackwardOps<B> + SplatForward<B>, C: CheckpointStrategy>
                     log_scales: log_scales.into_primitive(),
                     quats: quats.into_primitive(),
                     raw_opac: raw_opacity.into_primitive(),
-                    sh_degree: sh_degree_from_coeffs(
-                        Tensor::<Self, 3>::from_primitive(TensorPrimitive::Float(sh_coeffs)).dims()
-                            [1] as u32,
-                    ),
+                    coeffs: sh_coeffs.into_primitive(),
                     out_img: out_img.clone(),
                     projected_splats: aux.projected_splats,
                     uniforms_buffer: aux.uniforms_buffer,
@@ -272,7 +268,6 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
         #[derive(Debug)]
         struct CustomOp {
             desc: CustomOpIr,
-            sh_degree: u32,
         }
 
         impl<BT: BoolElement> Operation<FusionCubeRuntime<WgpuRuntime, BT>> for CustomOp {
@@ -288,6 +283,7 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
                     quats,
                     log_scales,
                     raw_opac,
+                    coeffs,
                     out_img,
                     projected_splats,
                     uniforms_buffer,
@@ -303,6 +299,7 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
                     log_scales: h.get_float_tensor::<MainBackendBase>(log_scales),
                     quats: h.get_float_tensor::<MainBackendBase>(quats),
                     raw_opac: h.get_float_tensor::<MainBackendBase>(raw_opac),
+                    coeffs: h.get_float_tensor::<MainBackendBase>(coeffs),
                     out_img: h.get_float_tensor::<MainBackendBase>(out_img),
                     projected_splats: h.get_float_tensor::<MainBackendBase>(projected_splats),
                     uniforms_buffer: h.get_int_tensor::<MainBackendBase>(uniforms_buffer),
@@ -311,7 +308,6 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
                         .get_int_tensor::<MainBackendBase>(compact_gid_from_isect),
                     global_from_compact_gid: h
                         .get_int_tensor::<MainBackendBase>(global_from_compact_gid),
-                    sh_degree: self.sh_degree,
                 };
 
                 let grads =
@@ -332,7 +328,7 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
 
         let client = v_output.client.clone();
         let num_points = state.means.shape[0];
-        let coeffs = sh_coeffs_for_degree(state.sh_degree) as usize;
+        let coeffs = 16usize;
 
         let v_means = TensorIr::uninit(
             client.create_empty_handle(),
@@ -371,6 +367,7 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
             state.quats,
             state.log_scales,
             state.raw_opac,
+            state.coeffs,
             state.out_img,
             state.projected_splats,
             state.uniforms_buffer,
@@ -400,7 +397,6 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
                 CustomOp {
                     // state,
                     desc,
-                    sh_degree: state.sh_degree,
                 },
             )
             .outputs();

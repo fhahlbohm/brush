@@ -32,5 +32,3 @@ pub mod helpers {
     pub const TILE_WIDTH: u32 = super::Rasterize::TILE_WIDTH;
 }
 
-// Re-export module-specific constants
-pub const SH_C0: f32 = ProjectVisible::SH_C0;

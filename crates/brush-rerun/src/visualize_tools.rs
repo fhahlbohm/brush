@@ -11,7 +11,6 @@ mod visualize_tools_impl {
 
     use brush_dataset::scene::Scene;
     use brush_render::gaussian_splats::Splats;
-    use brush_render::shaders::SH_C0;
     use brush_train::eval::EvalSample;
     use brush_train::msg::{RefineStats, TrainStepStats};
     use burn::prelude::Backend;
@@ -60,9 +59,7 @@ mod visualize_tools_impl {
                 let base_rgb = splats
                     .sh_coeffs
                     .val()
-                    .slice([0..splats.num_splats() as usize, 0..1])
-                    * SH_C0
-                    + 0.5;
+                    .slice([0..splats.num_splats() as usize, 0..1]);
 
                 let transparency = splats.opacities();
 

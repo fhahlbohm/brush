@@ -96,7 +96,7 @@ fn main(
                 #endif
 
                 let vis = alpha * T;
-                pix_out += max(color.rgb, vec3f(0.0)) * vis;
+                pix_out += color.rgb * vis;
                 T = next_T;
             }
         }

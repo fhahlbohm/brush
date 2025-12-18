@@ -2,7 +2,6 @@ use brush_kernel::{CubeCount, CubeTensor, calc_cube_count};
 use brush_wgsl::wgsl_kernel;
 
 use brush_render::MainBackendBase;
-use brush_render::sh::sh_coeffs_for_degree;
 use burn::tensor::FloatDType;
 use burn::tensor::ops::FloatTensorOps;
 use burn::{backend::wgpu::WgpuRuntime, prelude::Backend, tensor::ops::FloatTensor};
@@ -45,6 +44,7 @@ pub(crate) fn render_backward(
     means: CubeTensor<WgpuRuntime>,
     quats: CubeTensor<WgpuRuntime>,
     log_scales: CubeTensor<WgpuRuntime>,
+    coeffs: CubeTensor<WgpuRuntime>,
     out_img: CubeTensor<WgpuRuntime>,
 
     projected_splats: CubeTensor<WgpuRuntime>,
@@ -52,7 +52,6 @@ pub(crate) fn render_backward(
     compact_gid_from_isect: CubeTensor<WgpuRuntime>,
     global_from_compact_gid: CubeTensor<WgpuRuntime>,
     tile_offsets: CubeTensor<WgpuRuntime>,
-    sh_degree: u32,
 ) -> SplatGrads<MainBackendBase> {
     // Comes from loss, might not be contiguous.
     let v_output = into_contiguous(v_output);
@@ -84,7 +83,7 @@ pub(crate) fn render_backward(
     let v_scales = MainBackendBase::float_zeros([num_points, 3].into(), device, FloatDType::F32);
     let v_quats = MainBackendBase::float_zeros([num_points, 4].into(), device, FloatDType::F32);
     let v_coeffs = MainBackendBase::float_zeros(
-        [num_points, sh_coeffs_for_degree(sh_degree) as usize, 3].into(),
+        [num_points, 16usize, 3].into(),
         device,
         FloatDType::F32,
     );
@@ -146,6 +145,7 @@ pub(crate) fn render_backward(
                 means.handle.binding(),
                 log_scales.handle.binding(),
                 quats.handle.binding(),
+                coeffs.handle.binding(),
                 global_from_compact_gid.handle.binding(),
                 v_grads.handle.binding(),
                 v_means.handle.clone().binding(),

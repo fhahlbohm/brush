@@ -9,6 +9,7 @@ use burn::{
     prelude::Backend,
     tensor::{Tensor, TensorData, TensorPrimitive, activation::sigmoid, s},
 };
+use burn::tensor::Distribution;
 use glam::Vec3;
 use tracing::trace_span;
 
@@ -63,16 +64,40 @@ impl<B: Backend> Splats<B> {
 
     /// Set the SH degree of this splat to be equal to `sh_degree`
     pub fn with_sh_degree(mut self, sh_degree: u32) -> Self {
-        let n_coeffs = sh_coeffs_for_degree(sh_degree) as usize;
+        let n_coeffs = sh_coeffs_for_degree(3) as usize;
         let [n, cur_coeffs, _] = self.sh_coeffs.dims();
 
         self.sh_coeffs = self.sh_coeffs.map(|coeffs| {
             let device = coeffs.device();
+            let distribution_diff_dir = Distribution::Uniform(2.9, 3.1);
+            let distribution_other_col = Distribution::Uniform(0.4, 0.6);
+            let distribution_other_dir = Distribution::Normal(0.0, 1.0);
             let tens = if cur_coeffs < n_coeffs {
                 Tensor::cat(
                     vec![
                         coeffs,
-                        Tensor::zeros([n, n_coeffs - cur_coeffs, 3], &device),
+                        Tensor::random([n, 1, 3], distribution_diff_dir, &device),
+                        // site 1
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
+                        // site 2
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
+                        // site 3
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
+                        // site 4
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
+                        // site 5
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
+                        // site 6
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
+                        // site 7
+                        Tensor::random([n, 1, 3], distribution_other_col, &device),
+                        Tensor::random([n, 1, 3], distribution_other_dir, &device),
                     ],
                     1,
                 )
