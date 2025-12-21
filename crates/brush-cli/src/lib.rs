@@ -161,7 +161,7 @@ pub async fn run_cli_ui(
             ProcessMessage::NewProcess => {
                 main_spinner.set_message("Starting process...");
             }
-            ProcessMessage::NewSource { name } => {
+            ProcessMessage::NewSource { name, .. } => {
                 log::info!("Loading: {name}");
                 main_spinner.set_message(format!("Loading {name}..."));
             }
@@ -176,6 +176,7 @@ pub async fn run_cli_ui(
             ProcessMessage::ViewSplats { .. } => {}
             #[cfg(feature = "training")]
             ProcessMessage::TrainMessage(train) => match train {
+                TrainMessage::TrainConfig { .. } => {}
                 TrainMessage::Dataset { dataset } => {
                     let train_views = dataset.train.views.len();
                     let eval_views = dataset.eval.as_ref().map_or(0, |v| v.views.len());
@@ -230,7 +231,7 @@ pub async fn run_cli_ui(
             }
             ProcessMessage::Warning { error } => {
                 log::warn!("{error}");
-                sp.println("⚠️: {error}")?;
+                sp.println(format!("⚠️: {error}"))?;
             }
         }
     }

@@ -8,13 +8,15 @@ pub mod ui_process;
 
 mod panels;
 mod scene;
-mod settings;
 #[cfg(feature = "training")]
 mod stats;
 mod widget_3d;
 
 #[cfg(feature = "training")]
 mod datasets;
+
+#[cfg(feature = "training")]
+mod training_panel;
 
 #[cfg(feature = "training")]
 mod settings_popup;

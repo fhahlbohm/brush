@@ -116,9 +116,14 @@ impl UiProcess {
     }
 
     pub fn set_train_paused(&self, paused: bool) {
+        self.write().train_paused = paused;
         if let Some(process) = self.read().running_process.as_ref() {
             let _ = process.control.send(ControlMessage::Paused(paused));
         }
+    }
+
+    pub fn is_train_paused(&self) -> bool {
+        self.read().train_paused
     }
 
     pub fn get_cam_settings(&self) -> CameraSettings {
@@ -277,6 +282,10 @@ impl UiProcess {
                 Ok(ProcessMessage::DoneLoading) => {
                     inner.is_loading = false;
                 }
+                Err(_) => {
+                    inner.is_loading = false;
+                    inner.is_training = false;
+                }
                 _ => (),
             }
         }
@@ -291,6 +300,32 @@ impl UiProcess {
     pub fn set_ui_mode(&self, mode: UiMode) {
         self.write().ui_mode = mode;
     }
+
+    pub fn request_reset_layout(&self) {
+        self.write().reset_layout_requested = true;
+    }
+
+    pub fn take_reset_layout_request(&self) -> bool {
+        let mut inner = self.write();
+        let requested = inner.reset_layout_requested;
+        inner.reset_layout_requested = false;
+        requested
+    }
+
+    pub fn reset_session(&self) {
+        let mut inner = self.write();
+        let device_ctx = inner.cur_device_ctx.clone();
+        *inner = UiProcessInner::new();
+        inner.cur_device_ctx = device_ctx;
+        inner.session_reset_requested = true;
+    }
+
+    pub fn take_session_reset_request(&self) -> bool {
+        let mut inner = self.write();
+        let requested = inner.session_reset_requested;
+        inner.session_reset_requested = false;
+        requested
+    }
 }
 
 struct UiProcessInner {
@@ -303,6 +338,9 @@ struct UiProcessInner {
     cur_device_ctx: Option<DeviceContext>,
     ui_mode: UiMode,
     background_style: BackgroundStyle,
+    train_paused: bool,
+    reset_layout_requested: bool,
+    session_reset_requested: bool,
 }
 
 impl UiProcessInner {
@@ -323,6 +361,9 @@ impl UiProcessInner {
             cur_device_ctx: None,
             ui_mode: UiMode::Default,
             background_style: BackgroundStyle::Black,
+            train_paused: false,
+            reset_layout_requested: false,
+            session_reset_requested: false,
         }
     }
 

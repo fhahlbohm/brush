@@ -1,9 +1,17 @@
 use brush_render::MainBackend;
 use brush_render::gaussian_splats::Splats;
+use brush_vfs::DataSource;
 use glam::Vec3;
 
 #[cfg(feature = "training")]
+use crate::config::TrainStreamConfig;
+
+#[cfg(feature = "training")]
 pub enum TrainMessage {
+    /// Training configuration - sent at the start of training.
+    TrainConfig {
+        config: Box<TrainStreamConfig>,
+    },
     /// Loaded a dataset to train on.
     Dataset {
         dataset: brush_dataset::Dataset,
@@ -35,9 +43,10 @@ pub enum TrainMessage {
 pub enum ProcessMessage {
     /// A new process is starting (before we know what type)
     NewProcess,
-    /// Source has been loaded, contains the display name
+    /// Source has been loaded, contains the display name and type
     NewSource {
         name: String,
+        source: DataSource,
     },
     StartLoading {
         training: bool,

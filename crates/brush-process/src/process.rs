@@ -18,9 +18,13 @@ pub fn create_process(
         log::info!("Starting process with source {source:?}");
         emitter.emit(ProcessMessage::NewProcess).await;
 
-        let vfs = source.into_vfs().await?;
-
+        let vfs = source.clone().into_vfs().await?;
         let vfs_counts = vfs.file_count();
+
+        if vfs_counts == 0 {
+            return Err(anyhow::anyhow!("No files found."));
+        }
+
         let ply_count = vfs.files_with_extension("ply").count();
 
         log::info!(
@@ -49,7 +53,10 @@ pub fn create_process(
             format!("{} files", paths.len())
         };
         emitter
-            .emit(ProcessMessage::NewSource { name: source_name })
+            .emit(ProcessMessage::NewSource {
+                name: source_name,
+                source,
+            })
             .await;
 
         if !is_training {

@@ -1,13 +1,27 @@
+use std::ops::RangeInclusive;
+
 use brush_process::config::TrainStreamConfig;
 use brush_render::AlphaMode;
-use egui::Align2;
-use egui::Slider;
-use egui::Ui;
+use egui::{Align2, Slider, Ui};
 use tokio::sync::oneshot::Sender;
 
 pub(crate) struct SettingsPopup {
     send_args: Option<Sender<TrainStreamConfig>>,
     args: TrainStreamConfig,
+}
+
+fn slider<T>(ui: &mut Ui, value: &mut T, range: RangeInclusive<T>, text: &str, logarithmic: bool)
+where
+    T: egui::emath::Numeric,
+{
+    let mut s = Slider::new(value, range).clamping(egui::SliderClamping::Never);
+    if logarithmic {
+        s = s.logarithmic(true);
+    }
+    if !text.is_empty() {
+        s = s.text(text);
+    }
+    ui.add(s);
 }
 
 impl SettingsPopup {
@@ -19,35 +33,13 @@ impl SettingsPopup {
     }
 
     pub(crate) fn is_done(&self) -> bool {
-        // Check if the receiver is closed and set send_args to None if it is
         let Some(sender) = &self.send_args else {
             return true;
         };
         sender.is_closed()
     }
-}
 
-impl SettingsPopup {
-    pub(crate) fn ui(&mut self, ui: &egui::Ui) {
-        fn slider<T>(
-            ui: &mut Ui,
-            value: &mut T,
-            range: std::ops::RangeInclusive<T>,
-            text: &str,
-            logarithmic: bool,
-        ) where
-            T: egui::emath::Numeric,
-        {
-            let mut s = Slider::new(value, range).clamping(egui::SliderClamping::Never);
-            if logarithmic {
-                s = s.logarithmic(true);
-            }
-            if !text.is_empty() {
-                s = s.text(text);
-            }
-            ui.add(s);
-        }
-
+    pub(crate) fn ui(&mut self, ui: &egui::Ui, center: egui::Pos2) {
         if self.send_args.is_none() {
             return;
         }
@@ -55,16 +47,15 @@ impl SettingsPopup {
         egui::Window::new("Settings")
         .resizable(true)
         .collapsible(false)
-        .default_pos(ui.ctx().screen_rect().center())
+        .default_pos(center)
         .default_size([300.0, 700.0])
         .pivot(Align2::CENTER_CENTER)
         .show(ui.ctx(), |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-            // Training
             ui.heading("Training");
             slider(ui, &mut self.args.train_config.total_steps, 1..=50000, " steps", false);
 
-            ui.label("Max Splats");
+            ui.label("Max Splats Cap");
             ui.add(Slider::new(&mut self.args.train_config.max_splats, 1000000..=10000000)
                 .custom_formatter(|n, _| format!("{:.0}k", n as f32 / 1000.0))
                 .custom_parser(|str| {
@@ -104,16 +95,14 @@ impl SettingsPopup {
                 slider(ui, &mut tc.match_alpha_weight, 0.01..=1.0, "Alpha match weight", false);
             });
 
-            ui.add_space(15.0);
+            ui.add_space(16.0);
 
-            // Model
             ui.heading("Model");
             ui.label("Spherical Harmonics Degree:");
             ui.add(Slider::new(&mut self.args.model_config.sh_degree, 0..=4));
 
-            ui.add_space(15.0);
+            ui.add_space(16.0);
 
-            // Dataset
             ui.heading("Dataset");
             ui.label("Max image resolution");
             slider(ui, &mut self.args.load_config.max_resolution, 32..=2048, "", false);
@@ -173,9 +162,8 @@ impl SettingsPopup {
                 self.args.load_config.alpha_mode = Some(alpha_mode);
             }
 
-            ui.add_space(15.0);
+            ui.add_space(16.0);
 
-            // Process
             ui.heading("Process");
             ui.label("Random seed:");
             let mut seed_str = self.args.process_config.seed.to_string();
@@ -210,7 +198,6 @@ impl SettingsPopup {
 
             ui.add_space(15.0);
 
-            // Rerun
             #[cfg(all(not(target_family = "wasm"), not(target_os = "android")))]
             {
                 ui.add(egui::Hyperlink::from_label_and_url(
@@ -240,16 +227,15 @@ impl SettingsPopup {
                         .clamping(egui::SliderClamping::Never).suffix(" px"));
                 }
 
-                ui.add_space(15.0);
+                ui.add_space(16.0);
             }
 
-            // Start button
-            ui.add_space(10.0);
+            ui.add_space(12.0);
             ui.vertical_centered_justified(|ui| {
-                if ui.add(egui::Button::new("Start")
-                    .min_size(egui::vec2(150.0, 40.0))
+                if ui.add(egui::Button::new(egui::RichText::new("Start").size(14.0))
+                    .min_size(egui::vec2(150.0, 36.0))
                     .fill(egui::Color32::from_rgb(70, 130, 180))
-                    .corner_radius(5.0)).clicked() {
+                    .corner_radius(6.0)).clicked() {
                     self.send_args.take().expect("Must be some").send(self.args.clone()).ok();
                 }
             });
