@@ -6,9 +6,7 @@ use brush_wgsl::wgsl_kernel;
 pub struct Project;
 
 #[wgsl_kernel(source = "src/shaders/map_gaussian_to_intersects.wgsl")]
-pub struct MapGaussiansToIntersect {
-    pub prepass: bool,
-}
+pub struct MapGaussiansToIntersect;
 
 #[wgsl_kernel(source = "src/shaders/rasterize.wgsl")]
 pub struct Rasterize {

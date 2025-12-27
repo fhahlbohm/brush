@@ -14,16 +14,13 @@ use brush_kernel::create_uniform_buffer;
 use brush_kernel::{CubeCount, calc_cube_count_1d};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
-use burn::tensor::{DType, IntDType, ops::FloatTensor};
-use burn::tensor::{
-    FloatDType,
-    ops::{FloatTensorOps, IntTensorOps},
-};
+use burn::tensor::{DType, IntDType};
+use burn::tensor::ops::{FloatTensor, IntTensorOps};
 use burn_cubecl::cubecl::server::Bindings;
 
 use burn_cubecl::kernel::into_contiguous;
 use burn_wgpu::WgpuRuntime;
-use burn_wgpu::{CubeDim, CubeTensor};
+use burn_wgpu::CubeDim;
 use glam::{Vec3, uvec2, vec4};
 use std::mem::offset_of;
 
@@ -153,31 +150,32 @@ impl SplatForward<Self> for MainBackendBase {
         let projected_splats = create_tensor([total_splats, PROJ_SIZE], device, DType::F32);
         let splat_bounds = create_tensor([total_splats, BOUNDS_SIZE], device, DType::F32);
 
-        let use_aa = matches!(render_mode, SplatRenderMode::Mip);
+        let _use_aa = matches!(render_mode, SplatRenderMode::Mip);
 
         let (cum_tiles_hit, num_visible) = {
             let splat_intersect_counts =
                 MainBackendBase::int_zeros([total_splats + 1].into(), device, IntDType::U32);
 
-            tracing::trace_span!("Project").in_scope(||
+            tracing::trace_span!("Project").in_scope(|| {
                 // SAFETY: Kernel checked to have no OOB, bounded loops.
                 unsafe {
-                client.launch_unchecked(
-                    Project::task(),
-                    calc_cube_count_1d(total_splats as u32, Project::WORKGROUP_SIZE[0]),
-                    Bindings::new().with_buffers(
-                    vec![
-                        uniforms_buffer.handle.clone().binding(),
-                        means.handle.binding(),
-                        log_scales.handle.binding(),
-                        quats.handle.binding(),
-                        sh_coeffs.handle.binding(),
-                        raw_opacities.handle.binding(),
-                        projected_splats.handle.clone().binding(),
-                        splat_bounds.handle.clone().binding(),
-                        splat_intersect_counts.handle.clone().binding(),
-                    ]),
-                ).expect("Failed to render splats");
+                    client.launch_unchecked(
+                        Project::task(),
+                        calc_cube_count_1d(total_splats as u32, Project::WORKGROUP_SIZE[0]),
+                        Bindings::new().with_buffers(vec![
+                            uniforms_buffer.handle.clone().binding(),
+                            means.handle.binding(),
+                            log_scales.handle.binding(),
+                            quats.handle.binding(),
+                            sh_coeffs.handle.binding(),
+                            raw_opacities.handle.binding(),
+                            projected_splats.handle.clone().binding(),
+                            splat_bounds.handle.clone().binding(),
+                            splat_intersect_counts.handle.clone().binding(),
+                        ]),
+                    )
+                    .expect("Failed to render splats");
+                }
             });
 
             // TODO: Only need to do this up to num_visible gaussians really.
@@ -207,20 +205,19 @@ impl SplatForward<Self> for MainBackendBase {
             tracing::trace_span!("MapGaussiansToIntersect").in_scope(|| {
                 // SAFETY: Kernel checked to have no OOB, bounded loops.
                 unsafe {
-                    client
-                        .launch_unchecked(
-                            MapGaussiansToIntersect::task(false),
-                            CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
-                            Bindings::new().with_buffers(vec![
-                                uniforms_buffer.handle.clone().binding(),
-                                splat_bounds.handle.binding(),
-                                cum_tiles_hit.handle.binding(),
-                                tile_id_from_isect.handle.clone().binding(),
-                                compact_gid_from_isect.handle.clone().binding(),
-                                num_intersections.handle.clone().binding(),
-                            ]),
-                        )
-                        .expect("Failed to render splats");
+                    client.launch_unchecked(
+                        MapGaussiansToIntersect::task(),
+                        CubeCount::Dynamic(num_vis_map_wg.handle.clone().binding()),
+                        Bindings::new().with_buffers(vec![
+                            uniforms_buffer.handle.clone().binding(),
+                            splat_bounds.handle.binding(),
+                            cum_tiles_hit.handle.binding(),
+                            tile_id_from_isect.handle.clone().binding(),
+                            compact_gid_from_isect.handle.clone().binding(),
+                            num_intersections.handle.clone().binding(),
+                        ]),
+                    )
+                    .expect("Failed to render splats");
                 }
             });
 
