@@ -37,7 +37,9 @@ pub(crate) fn calc_tile_bounds(img_size: glam::UVec2) -> glam::UVec2 {
 // dispatch to avoid this.
 // Estimating the max number of intersects can be a bad hack though... The worst case scenario is so massive
 // that it's easy to run out of memory... How do we actually properly deal with this :/
-pub fn max_intersections(tile_bounds: glam::UVec2, num_splats: u32) -> u32 {
+pub fn max_intersections(img_size: glam::UVec2, num_splats: u32) -> u32 {
+    // Divide screen into tiles.
+    let tile_bounds = calc_tile_bounds(img_size);
     // Assume on average each splat is maximally covering half x half the screen,
     // and adjust for the variance such that we're fairly certain we have enough intersections.
     let num_tiles = tile_bounds[0] * tile_bounds[1];
@@ -111,7 +113,7 @@ impl SplatForward<Self> for MainBackendBase {
         // Tile rendering setup.
         let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] as u32);
         let total_splats = means.shape.dims[0];
-        let max_intersects = max_intersections(tile_bounds, total_splats as u32);
+        let max_intersects = max_intersections(img_size, total_splats as u32);
         let focal = camera.focal(img_size);
         let center = camera.center(img_size);
 
@@ -154,7 +156,7 @@ impl SplatForward<Self> for MainBackendBase {
 
         let (cum_tiles_hit, num_visible) = {
             let splat_intersect_counts =
-                MainBackendBase::int_zeros([total_splats + 1].into(), device, IntDType::U32);
+                Self::int_zeros([total_splats + 1].into(), device, IntDType::U32);
 
             tracing::trace_span!("Project").in_scope(|| {
                 // SAFETY: Kernel checked to have no OOB, bounded loops.
@@ -183,7 +185,7 @@ impl SplatForward<Self> for MainBackendBase {
                 .in_scope(|| prefix_sum(splat_intersect_counts));
 
             // Get the number of visible splats and instances from the uniforms buffer.
-            let num_visible = MainBackendBase::int_slice(
+            let num_visible = Self::int_slice(
                 uniforms_buffer.clone(),
                 &[(NUM_VISIBLE_OFFSET..NUM_VISIBLE_OFFSET + 1).into()],
             );
@@ -193,6 +195,8 @@ impl SplatForward<Self> for MainBackendBase {
 
         // Each intersection maps to a gaussian.
         let (tile_offsets, compact_gid_from_isect, num_intersections) = {
+            let num_tiles = tile_bounds.x * tile_bounds.y;
+
             let num_vis_map_wg =
                 create_dispatch_buffer_1d(num_visible, MapGaussiansToIntersect::WORKGROUP_SIZE[0]);
 
@@ -223,7 +227,6 @@ impl SplatForward<Self> for MainBackendBase {
 
             // We're sorting by tile ID, but we know beforehand what the maximum value
             // can be. We don't need to sort all the leading 0 bits!
-            let num_tiles = tile_bounds.x * tile_bounds.y;
             let bits = u32::BITS - num_tiles.leading_zeros();
 
             let (tile_id_from_isect, compact_gid_from_isect) = tracing::trace_span!("Tile sort")
