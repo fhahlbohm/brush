@@ -159,10 +159,16 @@ fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
     return ret;
 }
 
+const WG_SIZE: u32 = 256u;
+
 @compute
-@workgroup_size(256, 1, 1)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let global_gid = gid.x;
+@workgroup_size(WG_SIZE, 1, 1)
+fn main(
+    @builtin(workgroup_id) wid: vec3u,
+    @builtin(num_workgroups) num_wgs: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let global_gid = helpers::get_global_id(wid, num_wgs, lid, WG_SIZE);
 
     if global_gid >= uniforms.total_splats {
         return;
@@ -275,5 +281,4 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     );
     splat_bounds[write_id] = helpers::create_splat_bounds(tile_bbox);
     splat_intersect_counts[write_id + 1u] = num_tiles_hit;
-
 }
